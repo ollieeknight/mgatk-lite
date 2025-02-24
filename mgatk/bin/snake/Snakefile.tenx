@@ -1,0 +1,163 @@
+import os
+import subprocess
+import shutil
+import pysam
+from os.path import join
+
+# Parse the configuration variables
+configfile: config["cfp"]
+outdir = config["output_directory"]
+mgatk_directory = outdir
+name = config["name"]
+script_dir = config["script_dir"]
+indir = config["input_directory"]
+
+mito_genome = config["mito_chr"]
+mito_length = str(config["mito_length"])
+fasta_file = config["fasta_file"]
+
+remove_duplicates = config["remove_duplicates"]
+barcode_tag = config["barcode_tag"]
+umi_barcode = config["umi_barcode"]
+emit_base_qualities = config["emit_base_qualities"]
+
+handle_overlap = config["handle_overlap"]
+proper_paired = config["proper_paired"]
+base_qual = str(config["base_qual"])
+alignment_quality = config["alignment_quality"]
+NHmax = config["NHmax"]
+NMmax = config["NMmax"]
+low_coverage_threshold = config["low_coverage_threshold"]
+
+max_javamem = config["max_javamem"]
+
+# Software paths
+java = "java"
+python = "python"
+
+# Script locations
+filtclip_py = join(script_dir, "bin/python/filterClipBam.py")
+picardCall = f"{java} -Xmx{max_javamem} -jar {join(script_dir, 'bin/picard.jar')} MarkDuplicates"
+
+# A Snakemake regular expression matching the bam file paths
+SAMPLES, = glob_wildcards(join(outdir, ".internal/samples/{sample}.bam.txt"))
+bamtxtin = ''
+
+rule all:
+    input:
+        f"{mgatk_directory}/final/{name}.depthTable.txt",
+        f"{mgatk_directory}/final/{name}.A.txt.gz",
+        f"{mgatk_directory}/final/{name}.C.txt.gz",
+        f"{mgatk_directory}/final/{name}.G.txt.gz",
+        f"{mgatk_directory}/final/{name}.T.txt.gz",
+        f"{mgatk_directory}/final/{name}.coverage.txt.gz",
+        f"{mgatk_directory}/final/{name}.variant_stats.tsv.gz",
+        f"{mgatk_directory}/final/{name}.cell_heteroplasmic_df.tsv.gz",
+        f"{mgatk_directory}/final/{name}.vmr_strand_plot.png"
+
+rule process_one_slice:
+    input:
+        txtin = join(outdir, ".internal/samples/{sample}.bam.txt")
+    output:
+        depth = join(outdir, "logs/depth/{sample}_depth.txt"),
+        A = join(outdir, "temp/sparse_matrices/{sample}.A.txt"),
+        C = join(outdir, "temp/sparse_matrices/{sample}.C.txt"),
+        G = join(outdir, "temp/sparse_matrices/{sample}.G.txt"),
+        T = join(outdir, "temp/sparse_matrices/{sample}.T.txt"),
+        cov = join(outdir, "temp/sparse_matrices/{sample}.coverage.txt")
+    run:
+        sample = wildcards.sample
+        barcodes_file = join(outdir, f"temp/barcode_files/{sample}.txt")
+        out_pre = join(outdir, f"temp/sparse_matrices/{sample}")
+
+        with open(input.txtin) as f:
+            input_bam = f.read().strip()
+
+        output_bam = join(outdir, f"temp/ready_bam/{sample}.qc.bam")
+        rmlog = output_bam.replace(".qc.bam", ".rmdups.log").replace("/temp/ready_bam/", "/logs/rmdupslogs/")
+        filtlog = output_bam.replace(".qc.bam", ".log").replace("/temp/ready_bam/", "/logs/filter/")
+        temp_bam0 = output_bam.replace(".qc.bam", ".temp0.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
+        temp_bam1 = output_bam.replace(".qc.bam", ".temp1.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
+        prefixSM = join(outdir, f"temp/sparse_matrices/{sample}")
+        outputdepth = join(outdir, f"logs/depth/{sample}.txt")
+
+        def run_command(command):
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(f"Command failed: {command}\n{result.stderr}")
+
+        # 1) Filter bam files
+        pycall = f"{python} {filtclip_py} {input_bam} {filtlog} {mito_genome} {proper_paired} {NHmax} {NMmax} > {temp_bam0}"
+        run_command(pycall)
+
+        # 2) Sort the filtered bam file
+        pysam.sort("-o", temp_bam1, temp_bam0)
+        pysam.index(temp_bam1)
+
+        # 3) (Optional) Remove duplicates
+        if remove_duplicates == "True":
+            mdc_long = f"{picardCall} I={temp_bam1} O={output_bam} M={rmlog} REMOVE_DUPLICATES=true ASSUME_SORTED=true VALIDATION_STRINGENCY=SILENT QUIET=true VERBOSITY=ERROR USE_JDK_DEFLATER=true USE_JDK_INFLATER=true BARCODE_TAG={umi_barcode}"
+            run_command(mdc_long)
+        else:
+            shutil.move(temp_bam1, output_bam)
+            os.remove(f"{temp_bam1}.bai")
+        pysam.index(output_bam)
+
+        # Now collect the genotype counts
+        sumstats_tenx_py = join(script_dir, "bin/python/sumstatsBPtenx_overlap.py" if handle_overlap == "True" else "bin/python/sumstatsBPtenx.py")
+        pycall = f"{python} {sumstats_tenx_py} {output_bam} {barcodes_file} {out_pre} {mito_length} {base_qual} {fasta_file} {alignment_quality} {barcode_tag}"
+        run_command(pycall)
+
+rule make_depth_table:
+    input:
+        depths = expand(join(mgatk_directory, "logs/depth/{sample}_depth.txt"), sample=SAMPLES)
+    output:
+        depthtable = join(mgatk_directory, f"final/{name}.depthTable.txt")
+    run:
+        with open(output.depthtable, 'w') as f:
+            for file in input.depths:
+                with open(file) as infile:
+                    f.write(infile.read())
+
+rule make_final_sparse_matrices:
+    input:
+        As = expand(join(mgatk_directory, "temp/sparse_matrices/{sample}.A.txt"), sample=SAMPLES),
+        Cs = expand(join(mgatk_directory, "temp/sparse_matrices/{sample}.C.txt"), sample=SAMPLES),
+        Gs = expand(join(mgatk_directory, "temp/sparse_matrices/{sample}.G.txt"), sample=SAMPLES),
+        Ts = expand(join(mgatk_directory, "temp/sparse_matrices/{sample}.T.txt"), sample=SAMPLES),
+        Covs = expand(join(mgatk_directory, "temp/sparse_matrices/{sample}.coverage.txt"), sample=SAMPLES)
+    output:
+        A = join(mgatk_directory, f"final/{name}.A.txt.gz"),
+        C = join(mgatk_directory, f"final/{name}.C.txt.gz"),
+        G = join(mgatk_directory, f"final/{name}.G.txt.gz"),
+        T = join(mgatk_directory, f"final/{name}.T.txt.gz"),
+        Cov = join(mgatk_directory, f"final/{name}.coverage.txt.gz")
+    run:
+        def makeSM(iterableThing, l):
+            with open(join(mgatk_directory, f"final/{name}.{l}.txt"), 'w') as outfile:
+                for i in iterableThing:
+                    with open(i) as infile:
+                        outfile.write(infile.read())
+            subprocess.run(f"gzip {join(mgatk_directory, f'final/{name}.{l}.txt')}", shell=True)
+
+        makeSM(input.As, "A")
+        makeSM(input.Cs, "C")
+        makeSM(input.Gs, "G")
+        makeSM(input.Ts, "T")
+        makeSM(input.Covs, "coverage")
+
+rule call_variants:
+    input:
+        A = join(mgatk_directory, f"final/{name}.A.txt.gz"),
+        C = join(mgatk_directory, f"final/{name}.C.txt.gz"),
+        G = join(mgatk_directory, f"final/{name}.G.txt.gz"),
+        T = join(mgatk_directory, f"final/{name}.T.txt.gz"),
+        chrM_ref = join(mgatk_directory, f"final/{mito_genome}_refAllele.txt")
+    output:
+        variant_stats = join(mgatk_directory, f"final/{name}.variant_stats.tsv.gz"),
+        heteroplasmy_df = join(mgatk_directory, f"final/{name}.cell_heteroplasmic_df.tsv.gz"),
+        vmr_strand_plot = join(mgatk_directory, f"final/{name}.vmr_strand_plot.png")
+    run:
+        call_variant_py = join(script_dir, "bin/python/variant_calling.py")
+        pycall = f"{python} {call_variant_py} {join(mgatk_directory, 'final/')} {name} {mito_length} {low_coverage_threshold} {mito_genome}"
+        subprocess.run(pycall, shell=True)

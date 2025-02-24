@@ -1,0 +1,58 @@
+Configuration details:
+Mode                     : tenx
+Input                    : barcode/test_barcode.bam
+Output                   : bc1dmem
+Name                     : bc1
+Mitochondrial genome     : rCRS
+Number of cores          : 2
+Barcode tag              : CB
+Barcodes                 : barcode/test_barcodes.txt
+Min barcode reads        : 1000
+NHmax                    : 1
+NMmax                    : 4
+Remove duplicates        : False
+UMI barcode              : XX
+Handle overlap           : False
+Low coverage threshold   : 10
+Max java memory          : 8000m
+Proper pairs             : False
+Base quality             : 0
+Alignment quality        : 0
+Emit base qualities      : False
+Number of samples        : 0
+Keep samples             : ALL
+Ignore samples           : NONE
+Keep temp files          : False
+Keep QC .bam files       : False
+Skip R                   : False
+Snake stdout             : False
+Remove .snakemake        : False
+Configuration details:
+Mode                     : tenx
+Input                    : barcode/test_barcode.bam
+Output                   : bc1dmem
+Name                     : bc1
+Mitochondrial genome     : rCRS
+Number of cores          : 2
+Barcode tag              : CB
+Barcodes                 : barcode/test_barcodes.txt
+Min barcode reads        : 1000
+NHmax                    : 1
+NMmax                    : 4
+Remove duplicates        : False
+UMI barcode              : XX
+Handle overlap           : False
+Low coverage threshold   : 10
+Max java memory          : 8000m
+Proper pairs             : False
+Base quality             : 0
+Alignment quality        : 0
+Emit base qualities      : False
+Number of samples        : 0
+Keep samples             : ALL
+Ignore samples           : NONE
+Keep temp files          : False
+Keep QC .bam files       : False
+Skip R                   : False
+Snake stdout             : False
+Remove .snakemake        : False
