@@ -18,32 +18,6 @@ from itertools import repeat
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def check_file_exists(file_path, error_message):
-    """
-    Checks if a file exists and exits if it doesn't.
-
-    Args:
-        file_path (str): Path to the file.
-        error_message (str): Error message to display if the file doesn't exist.
-    """
-    if not os.path.exists(file_path):
-        logger.error(error_message)
-        sys.exit(1)
-
-def create_output_directories(output_dir):
-    """
-    Creates the necessary output directories.
-
-    Args:
-        output_dir (str): The main output directory.
-    """
-    tf = os.path.join(output_dir, "temp")
-    bcbd = os.path.join(tf, "barcoded_bams")  # bcdb = barcoded bam directory
-    folders = [output_dir, tf, bcbd, os.path.join(output_dir, "final")]
-    logger.info("Creating output directories...")
-    for folder in folders:
-        make_folder(folder)
-
 @click.command()
 @click.version_option()
 @click.option('--input', '-i', default=".", required=True, help='Input .bam file from ASAP- or DOGMA-seq 10x single cell ATAC library')
@@ -106,13 +80,10 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         logger.error(f"The input should be an individual .bam file, but got {file_extension}.")
         sys.exit(1)
 
-    check_file_exists(input, f"No file found called '{input}'; please specify a valid .bam file.")
-
     index_file = input + ".bai"
     if not os.path.exists(index_file):
         logger.info(f"Attempting to index: {input}")
         pysam.index(input)
-        check_file_exists(index_file, "Cannot find index file for input .bam file; please ensure that the .bam file is indexed.")
 
     # Determine whether or not we have been supplied barcodes
     if os.path.exists(barcodes) and barcodes != "":
