@@ -4,6 +4,7 @@
 # Summarizes the total number of reads per position / strand
 ###################################################
 
+print("sumstatsBPtenx.py is running")  # Add this line
 import sys
 import pysam
 import numpy as np
