@@ -60,19 +60,14 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     # Verify dependencies
     logger.info("Verifying software dependencies...")
     check_software_dependencies(['R', 'java'])
-    logger.info("Verifying R dependencies...")
     check_R_dependencies(["data.table", "SummarizedExperiment", "GenomicRanges", "Matrix"])
-    logger.info("Verifying pip dependencies...")
     check_pip_dependencies(['matplotlib', 'pulp'])
 
     ncores = int(ncores)
-    logger.info(f"Using {ncores} cores for parallel processing.")
 
     # Determine which genomes are available
-    logger.info("Determining available mitochondrial genomes...")
     rawsg = glob.glob(script_dir + "/bin/anno/fasta/*.fasta")
     supported_genomes = [x.replace(script_dir + "/bin/anno/fasta/", "").replace(".fasta", "") for x in rawsg]
-    logger.info(f"Supported genomes: {supported_genomes}")
 
     # Input argument is assumed to be a .bam file
     filename, file_extension = os.path.splitext(input)
@@ -92,7 +87,6 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     # Determine whether or not we have been supplied barcodes
     if os.path.exists(barcodes) and barcodes != "":
         barcode_known = True
-        logger.info("Using provided barcode list.")
     else:
         logger.error('Must specify a known barcode list')
         sys.exit('Must specify a known barcode list with --barcodes')
@@ -103,7 +97,7 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         ("Output", output),
         ("Name", name),
         ("Mitochondrial genome", mito_genome),
-        ("Number of cores", ncores),
+        ("Cores", ncores),
         ("Barcode tag", barcode_tag),
         ("Barcodes", barcodes),
         ("Min barcode reads", min_barcode_reads),
@@ -137,13 +131,10 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     tf = of + "/temp"
     bcbd = tf + "/barcoded_bams"  # bcdb = barcoded bam directory
     folders = [of, tf, bcbd, of + "/final"]
-    logger.info("Creating output directories...")
     mkfolderout = [make_folder(x) for x in folders]
 
     # Handle fasta requirements
-    logger.info("Handling fasta requirements...")
     fastaf, mito_chr, mito_length = handle_fasta_inference(mito_genome, supported_genomes, script_dir, of)
-    logger.info(f"Using fasta file: {fastaf}")
     idxs = pysam.idxstats(input).split("\n")
 
     # Handle common mtDNA reference genome errors
@@ -161,7 +152,6 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         sys.exit(1)
 
     # Split barcodes file for parallel processing
-    logger.info("Splitting barcode file for parallel processing...")
     barcode_files = split_barcodes_file(barcodes, math.ceil(file_len(barcodes) / ncores), output)
     samples = [os.path.basename(os.path.splitext(sample)[0]) for sample in barcode_files]
     samplebams = [os.path.join(of, "temp", "barcoded_bams", f"{sample}.bam") for sample in samples]
@@ -172,7 +162,6 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     pool.starmap(split_chunk_file, zip(barcode_files, repeat(script_dir), repeat(input), repeat(bcbd), repeat(barcode_tag), repeat(mito_chr), repeat(umi_barcode)))
     pool.close()
     pool.join()
-    logger.info("Finished parallel processing of barcode files.")
 
     # Create necessary directories for output and logs
     of = output
@@ -182,7 +171,6 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         logs, os.path.join(of, "logs", "filter"), os.path.join(of, "logs", "depth"), os.path.join(of, "fasta"), os.path.join(of, ".internal"),
         os.path.join(of, ".internal", "parseltongue"), os.path.join(of, ".internal", "samples"), os.path.join(of, "final"),
         tf, os.path.join(tf, "ready_bam"), os.path.join(tf, "temp_bam"), os.path.join(tf, "sparse_matrices")]
-    logger.info("Creating additional output directories...")
     mkfolderout = [make_folder(x) for x in folders]
 
     if remove_duplicates:
@@ -207,7 +195,6 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
             outfile.write(sample_bam_path)
 
     # Create YAML configuration file for Snakemake
-    logger.info("Creating Snakemake configuration file...")
     dict1 = {
         'input_directory': sqs(input), 'output_directory': sqs(output), 'script_dir': sqs(script_dir),
         'fasta_file': sqs(fastaf), 'mito_chr': sqs(mito_chr), 'mito_length': sqs(mito_length), 'name': sqs(name),
@@ -222,41 +209,41 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         yaml = YAML()
         yaml.default_flow_style = False
         yaml.dump(dict1, yaml_file)
-    logger.info("Snakemake configuration file created.")
 
     # Write configuration details to configuration.txt
-    logger.info("Writing configuration details to file...")
     with open(os.path.join(logs, "configuration.txt"), 'a') as param_file:
         param_file.write("Configuration details:\n")
         for key, value in config_details:
             param_file.write(f"{key:25}: {value}\n")
-    logger.info("Configuration details written to file.")
 
     # Execute Snakemake command
     snake_log = os.path.join(logs, "snakemake.log")
     snake_log_out = "" if snake_stdout else f'> {snake_log} 2>&1'
     snakecmd_tenx = f'snakemake --snakefile {os.path.join(script_dir, "bin", "snake", "Snakefile.tenx")} --cores {ncores} --config cfp="{y_s}" {snake_log_out}'
 
-    logger.info(f"Executing Snakemake command: {snakecmd_tenx}")
+    logger.info(f"Executing Snakemake command to genotype barcodes")
 
     try:
         result = subprocess.run(snakecmd_tenx, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
-        logger.error(f"Snakemake failed, see {snake_log} for details.")
-        sys.exit(1)
+        if e.returncode == 100:
+            logger.warning("No variants were called. The analysis will terminate gracefully.")
+            sys.exit(0)  # Exit gracefully
+        else:
+            logger.error(f"Snakemake failed, see {snake_log} for details.")
+            sys.exit(1)
 
     if not skip_r:
-        logger.info("Running R script to generate .rds object...")
+        logger.info("Generating .rds objects...")
         Rcall = f"Rscript {os.path.join(script_dir, 'bin', 'R', 'toRDS.R')} {os.path.join(output, 'final')} {name}"
         os.system(Rcall)
         logger.info("R script completed.")
 
     if remove_snakemake:
-        logger.info("Removing .snakemake directory as --remove-snakemake was specified.")
         shutil.rmtree(".snakemake")
 
     if keep_qc_bams:
-        logger.info("Final bams retained since --keep-qc-bams was specified.")
+        logger.info("Final bams retained")
         shutil.move(os.path.join(of, "temp", "ready_bam"), os.path.join(of, "qc_bam"))
 
     if not keep_temp_files:
@@ -264,8 +251,5 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         folders_to_remove = [os.path.join(of, "fasta"), os.path.join(of, ".internal"), os.path.join(of, "temp")]
         for folder in folders_to_remove:
             shutil.rmtree(folder)
-        logger.info("Temporary files removed.")
-    else:
-        logger.info("Temporary files not deleted since --keep-temp-files was specified.")
 
     logger.info("Successfully created final output files. Analysis complete.")

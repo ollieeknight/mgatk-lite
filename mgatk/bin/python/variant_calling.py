@@ -13,7 +13,7 @@ from matplotlib import pyplot as plt
 
 # Parse arguments
 MGATK_OUT_DIR = sys.argv[1]
-sample_prefix = sys.argv[2] 
+sample_prefix = sys.argv[2]
 mito_length = int(sys.argv[3])
 low_coverage_threshold = int(sys.argv[4])
 mito_genome = sys.argv[5]
@@ -25,25 +25,25 @@ def load_mgatk_output(output_dir, mito_length):
     """Load and process base coverage files."""
     base_files = [glob.glob(output_dir + f'*.{nt}.txt.gz')[0] for nt in 'ATCG']
     base_coverage_dict = dict()
-    
+
     for i, nt in enumerate('ATCG'):
         cur_base_data = pd.read_csv(gzip.open(base_files[i]), header=None)
         positions = range(1, mito_length + 1)
-        
+
         # Process forward and reverse strands
         fwd_pivot = cur_base_data[[0, 1, 2]].pivot_table(index=1, columns=0)
         fwd_pivot.columns = [x[1] for x in fwd_pivot.columns.values]
         rev_pivot = cur_base_data[[0, 1, 3]].pivot_table(index=1, columns=0)
         rev_pivot.columns = [x[1] for x in rev_pivot.columns.values]
-        
+
         # Create complete DataFrames
         fwd_base_df = pd.DataFrame(0, index=fwd_pivot.index, columns=positions)
         rev_base_df = pd.DataFrame(0, index=rev_pivot.index, columns=positions)
         fwd_base_df.update(fwd_pivot)
         rev_base_df.update(rev_pivot)
-        
+
         base_coverage_dict[nt] = (fwd_base_df, rev_base_df)
-    
+
     return base_coverage_dict
 
 
@@ -51,43 +51,43 @@ def gather_possible_variants(base_coverage_dict, reference_file):
     """Identify potential variants from coverage data."""
     # Sum across cells and strands for each base and position
     aggregated_genotype = pd.DataFrame(
-        np.zeros((4, mito_length)), 
+        np.zeros((4, mito_length)),
         index=list('ATCG'),
         columns=np.arange(1, mito_length + 1)
     )
-    
+
     for nt in base_coverage_dict:
         fwd_base_df, rev_base_df = base_coverage_dict[nt]
         fwd_base_sum, rev_base_sum = fwd_base_df.sum(), rev_base_df.sum()
-        
+
         # Ignore sequencing artifacts
         masking = ~((fwd_base_sum > 0) & (rev_base_sum > 0))
         fwd_base_sum[masking], rev_base_sum[masking] = 0, 0
-        
+
         # Sum across strands
         aggregated_genotype.loc[nt, :] = fwd_base_sum + rev_base_sum
-    
+
     # Create reference set
     ref_set = [x.strip().split() for x in open(reference_file, 'r').readlines()]
     ref_N_positions = [int(x[0]) for x in ref_set if x[1].upper() not in letters]
     ref_set = set([(int(x[0]), x[1].upper()) for x in ref_set if x[1].upper() in letters])
     ref_dict = dict(ref_set)
-    
+
     # Create observed set
     non_zero_idx = np.where(aggregated_genotype > 0)
     non_zero_bases = [letters[i] for i in non_zero_idx[0]]
     non_zero_pos = [int(i + 1) for i in non_zero_idx[1]]
     observed_set = set([
-        (pos, base) for pos, base in zip(non_zero_pos, non_zero_bases) 
+        (pos, base) for pos, base in zip(non_zero_pos, non_zero_bases)
         if pos not in ref_N_positions
     ])
-    
+
     # Determine variants
     variant_set = observed_set - ref_set
     variants = sorted([
         (x[0], ref_dict[x[0]], x[1]) for x in list(variant_set)
     ], key=lambda x: x[0])
-    
+
     return variants
 
 
@@ -134,6 +134,14 @@ for i, var in enumerate(variants):
     rev_cell_variant_df.append(base_coverage_dict[base][1][pos].values)
 
 # Convert to DataFrames
+if not variants or not cell_barcodes:
+    print("No variants or cell barcodes found. Creating empty output files.")
+    # Create empty output files
+    open(MGATK_OUT_DIR + sample_prefix + '.variant_stats.tsv.gz', 'w').close()
+    open(MGATK_OUT_DIR + sample_prefix + '.cell_heteroplasmic_df.tsv.gz', 'w').close()
+    plt.figure().savefig(MGATK_OUT_DIR + sample_prefix + '.vmr_strand_plot.png')
+    sys.exit(100)  # Return a specific exit code
+
 total_coverage_variant_df = pd.DataFrame(
     np.array(total_coverage_variant_df).T,
     index=cell_barcodes,
@@ -187,7 +195,7 @@ variant_stats = {
 variant_output = pd.DataFrame(variant_stats)
 
 # Convert numeric columns to float64
-numeric_cols = ['vmr', 'mean', 'variance', 'strand_correlation', 
+numeric_cols = ['vmr', 'mean', 'variance', 'strand_correlation',
                 'mean_coverage', 'max_heteroplasmy']
 variant_output[numeric_cols] = variant_output[numeric_cols].astype(np.float64)
 

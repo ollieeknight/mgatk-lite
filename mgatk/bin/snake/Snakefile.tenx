@@ -193,5 +193,11 @@ rule call_variants:
         print("Starting call_variants")
         call_variant_py = join(script_dir, "bin/python/variant_calling.py")
         pycall = f"{python} {call_variant_py} {join(mgatk_directory, 'final/')} {name} {mito_length} {low_coverage_threshold} {mito_genome}"
-        run_command(pycall)
+        try:
+            run_command(pycall)
+        except Exception as e:
+            if "exit code 100" in str(e):
+                print("No variants called.")
+            else:
+                raise e
         print("Finished call_variants")
