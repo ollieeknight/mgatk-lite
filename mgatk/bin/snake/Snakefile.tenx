@@ -43,6 +43,14 @@ picardCall = f"{java} -Xmx{max_javamem} -jar {join(script_dir, 'bin/picard.jar')
 SAMPLES, = glob_wildcards(join(outdir, ".internal/samples/{sample}.bam.txt"))
 bamtxtin = ''
 
+def run_command(command):
+    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Command failed: {command}")
+        print(f"Stdout: {result.stdout}")
+        print(f"Stderr: {result.stderr}")
+        raise Exception(f"Command failed: {command}\n{result.stderr}")
+
 rule all:
     input:
         f"{mgatk_directory}/final/{name}.depthTable.txt",
@@ -80,11 +88,6 @@ rule process_one_slice:
         temp_bam1 = output_bam.replace(".qc.bam", ".temp1.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
         prefixSM = join(outdir, f"temp/sparse_matrices/{sample}")
         outputdepth = join(outdir, f"logs/depth/{sample}.txt")
-
-        def run_command(command):
-            result = subprocess.run(command, shell=True, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise Exception(f"Command failed: {command}\n{result.stderr}")
 
         # 1) Filter bam files
         pycall = f"{python} {filtclip_py} {input_bam} {filtlog} {mito_genome} {proper_paired} {NHmax} {NMmax} > {temp_bam0}"
@@ -138,7 +141,7 @@ rule make_final_sparse_matrices:
                 for i in iterableThing:
                     with open(i) as infile:
                         outfile.write(infile.read())
-            subprocess.run(f"gzip {join(mgatk_directory, f'final/{name}.{l}.txt')}", shell=True)
+            run_command(f"gzip {join(mgatk_directory, f'final/{name}.{l}.txt')}")
 
         makeSM(input.As, "A")
         makeSM(input.Cs, "C")
@@ -160,4 +163,4 @@ rule call_variants:
     run:
         call_variant_py = join(script_dir, "bin/python/variant_calling.py")
         pycall = f"{python} {call_variant_py} {join(mgatk_directory, 'final/')} {name} {mito_length} {low_coverage_threshold} {mito_genome}"
-        subprocess.run(pycall, shell=True)
+        run_command(pycall)
