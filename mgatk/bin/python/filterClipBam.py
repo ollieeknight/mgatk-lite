@@ -40,7 +40,16 @@ def filterReadTags(intags):
             nm = value
     return nh <= int(NHmax) and nm <= int(NMmax)
 
-def pairing(read(read):
+def pairing(read):
+    '''
+    Check if reads are properly paired
+    '''
+    if proper_pair == "True":
+        return read.is_proper_pair
+    else:
+        return True
+
+def processRead(read):
     '''
     Process each read in the BAM file
     '''
