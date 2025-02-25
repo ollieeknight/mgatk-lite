@@ -15,7 +15,11 @@ bamfile, logfile, mtchr, proper_pair, NHmax, NMmax = sys.argv[1:7]
 bam = pysam.AlignmentFile(bamfile, "rb")
 
 # Modify the header to account for CRA v2 nonsense
-new_header = str(bam.header).replace("@HD\tSO:coordinate", "@HD\tVN:1.5\tSO:coordinate")
+header_string = str(bam.header)
+if "@HD\tSO:coordinate" in header_string:
+    new_header = header_string.replace("@HD\tSO:coordinate", "@HD\tVN:1.5\tSO:coordinate")
+else:
+    new_header = header_string
 out = pysam.AlignmentFile("-", "wb", text=new_header)
 
 # Initialize counters
@@ -23,36 +27,47 @@ keepCount = 0
 filtCount = 0
 
 def filterReadTags(intags):
-	'''
-	Checks for aligner-specific read tags and filters
-	'''
-	for tg in intags:
-		if (('NH' == tg[0] and int(tg[1]) > int(NHmax)) or
-			(('NM' == tg[0] or 'nM' == tg[0]) and int(tg[1]) > int(NMmax))):
-			return False
-	return True
+    '''
+    Filter reads based on tag values
+    '''
+    nh = 0
+    nm = 0
+    for tag, value in intags:
+        if tag == "NH":
+            nh = value
+        if tag == "NM":
+            nm = value
+    return nh <= int(NHmax) and nm <= int(NMmax)
 
 def pairing(read):
-	'''
-	Check if read is paired, properly paired, etc.
-	'''
-	return proper_pair != "True" or read.is_proper_pair
+    '''
+    Check if reads are properly paired
+    '''
+    if proper_pair == "True":
+        return read.is_proper_pair
+    else:
+        return True
 
 def processRead(read):
-	'''
-	Process each read and decide whether to keep or filter it
-	'''
-	global keepCount, filtCount
-	if filterReadTags(read.tags) and read.reference_name == mtchr and pairing(read):
-		keepCount += 1
-		out.write(read)
-	else:
-		filtCount += 1
+    '''
+    Process each read in the BAM file
+    '''
+    global keepCount, filtCount
+    if filterReadTags(read.tags) and pairing(read):
+        keepCount += 1
+        out.write(read)
+    else:
+        filtCount += 1
 
 # Process each read in the BAM file
 for read in bam:
-	processRead(read)
+    processRead(read)
 
 # Write the log file with counts of kept and filtered reads
 with open(logfile, 'w') as outfile:
-	outfile.write(f"Kept {keepCount}\nRemoved {filtCount}\n")
+    outfile.write(f"Kept {keepCount} reads\n")
+    outfile.write(f"Filtered {filtCount} reads\n")
+
+# Close BAM files
+bam.close()
+out.close()
