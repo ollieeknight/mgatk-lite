@@ -78,70 +78,49 @@ rule process_one_slice:
         T = join(outdir, "temp/sparse_matrices/{sample}.T.txt"),
         cov = join(outdir, "temp/sparse_matrices/{sample}.coverage.txt"),
         temp_bam0 = join(outdir, "temp/temp_bam/{sample}.temp0.bam") # Add temp_bam0 to output
-    run:
-        sample = wildcards.sample
-        barcodes_file = join(outdir, f"temp/barcode_files/{sample}.txt")
-        out_pre = join(outdir, f"temp/sparse_matrices/{sample}")
+    shell:
+        """
+        sample=$(echo {{wildcards.sample}})
+        barcodes_file=$(echo {outdir}/temp/barcode_files/$sample.txt)
+        out_pre=$(echo {outdir}/temp/sparse_matrices/$sample)
 
-        with open(input.txtin) as f:
-            input_bam = f.read().strip()
+        input_bam=$(cat {input.txtin})
 
-        output_bam = join(outdir, f"temp/ready_bam/{sample}.qc.bam")
-        rmlog = output_bam.replace(".qc.bam", ".rmdups.log").replace("/temp/ready_bam/", "/logs/rmdupslogs/")
-        filtlog = output_bam.replace(".qc.bam", ".log").replace("/temp/ready_bam/", "/logs/filter/")
-        temp_bam1 = output_bam.replace(".qc.bam", ".temp1.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
-        prefixSM = join(outdir, f"temp/sparse_matrices/{sample}")
-        outputdepth = join(outdir, f"logs/depth/{sample}.txt")
-
-        def run_command(command, log_file=None):
-            try:
-                if log_file:
-                    with open(log_file, "w") as f:
-                        result = subprocess.run(command, shell=True, check=True, stdout=f, stderr=subprocess.PIPE, text=True)
-                        print(f"Command completed successfully. Log file: {log_file}")
-                else:
-                    result = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
-                    print(f"Command completed successfully.")
-                if result.stderr:
-                    print(f"Command had stderr output:\n{result.stderr}")
-            except subprocess.CalledProcessError as e:
-                print(f"Command failed with return code {e.returncode}: {command}\nStdout: {e.stdout}\nStderr: {e.stderr}")
-                raise
-            except Exception as e:
-                print(f"An unexpected error occurred while running the command: {command}\n{e}")
-                raise
+        output_bam=$(echo {outdir}/temp/ready_bam/$sample.qc.bam)
+        rmlog=$(echo $output_bam | sed 's/.qc.bam/.rmdups.log/g' | sed 's/\/temp\/ready_bam\//\/logs\/rmdupslogs\//g')
+        filtlog=$(echo $output_bam | sed 's/.qc.bam/.log/g' | sed 's/\/temp\/ready_bam\//\/logs\/filter\//g')
+        temp_bam1=$(echo $output_bam | sed 's/.qc.bam/.temp1.bam/g' | sed 's/\/temp\/ready_bam\//\/temp\/temp_bam\//g')
 
         # 0) Check input files exist
-        check_file_exists(input_bam)
-        check_file_exists(fasta_file)
-        check_file_exists(barcodes_file)
+        check_file_exists "$input_bam"
+        check_file_exists "{fasta_file}"
+        check_file_exists "$barcodes_file"
 
         # 1) Filter bam files
-        print(f"Filtering bam files for sample {sample}")
-        pycall = f"{python} {filtclip_py} {input_bam} {filtlog} {mito_genome} {proper_paired} {NHmax} {NMmax} > {output.temp_bam0}" # Redirect output to temp_bam0
-        run_command(pycall)
+        echo "Filtering bam files for sample $sample"
+        python "{filtclip_py}" "$input_bam" "$filtlog" "{mito_genome}" "{proper_paired}" "{NHmax}" "{NMmax}" > {output.temp_bam0}
 
         # 2) Sort the filtered bam file
-        print(f"Sorting filtered bam file for sample {sample}")
-        pysam.sort("-o", temp_bam1, output.temp_bam0)
-        pysam.index(temp_bam1)
+        echo "Sorting filtered bam file for sample $sample"
+        pysam sort -o "$temp_bam1" {output.temp_bam0}
+        pysam index "$temp_bam1"
 
         # 3) (Optional) Remove duplicates
-        if remove_duplicates == "True":
-            print(f"Removing duplicates for sample {sample}")
-            mdc_long = f"{picardCall} I={temp_bam1} O={output_bam} M={rmlog} REMOVE_DUPLICATES=true ASSUME_SORTED=true VALIDATION_STRINGENCY=SILENT QUIET=true VERBOSITY=ERROR USE_JDK_DEFLATER=true USE_JDK_INFLATER=true BARCODE_TAG={umi_barcode}"
-            run_command(mdc_long)
-        else:
-            print(f"Skipping duplicate removal for sample {sample}")
-            shutil.move(temp_bam1, output_bam)
-            os.remove(f"{temp_bam1}.bai")
-        pysam.index(output_bam)
+        if [[ "{remove_duplicates}" == "True" ]]; then
+            echo "Removing duplicates for sample $sample"
+            java -Xmx{max_javamem} -jar "{script_dir}/bin/picard.jar" MarkDuplicates I="$temp_bam1" O="$output_bam" M="$rmlog" REMOVE_DUPLICATES=true ASSUME_SORTED=true VALIDATION_STRINGENCY=SILENT QUIET=true VERBOSITY=ERROR USE_JDK_DEFLATER=true USE_JDK_INFLATER=true BARCODE_TAG="{umi_barcode}"
+        else
+            echo "Skipping duplicate removal for sample $sample"
+            mv "$temp_bam1" "$output_bam"
+            rm "$temp_bam1.bai"
+        fi
+        pysam index "$output_bam"
 
         # Now collect the genotype counts
-        print(f"Collecting genotype counts for sample {sample}")
-        sumstats_tenx_py = join(script_dir, "bin/python/sumstatsBPtenx_overlap.py" if handle_overlap == "True" else "bin/python/sumstatsBPtenx.py")
-        pycall = f"{python} {sumstats_tenx_py} {output_bam} {barcodes_file} {out_pre} {mito_length} {base_qual} {fasta_file} {alignment_quality} {barcode_tag}"
-        run_command(pycall)
+        echo "Collecting genotype counts for sample $sample"
+        sumstats_tenx_py=$(echo "{script_dir}/bin/python/sumstatsBPtenx_overlap.py" | sed 's/.py/_overlap.py/g')
+        python "$sumstats_tenx_py" "$output_bam" "$barcodes_file" "$out_pre" "{mito_length}" "{base_qual}" "{fasta_file}" "{alignment_quality}" "{barcode_tag}"
+        """
 
 rule make_depth_table:
     input:
