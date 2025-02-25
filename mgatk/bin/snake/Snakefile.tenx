@@ -4,6 +4,7 @@ import shutil
 import pysam
 from os.path import join
 import logging
+import snakemake
 
 # Setup logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -82,7 +83,8 @@ rule process_one_slice:
         C = join(outdir, "temp/sparse_matrices/{sample}.C.txt"),
         G = join(outdir, "temp/sparse_matrices/{sample}.G.txt"),
         T = join(outdir, "temp/sparse_matrices/{sample}.T.txt"),
-        cov = join(outdir, "temp/sparse_matrices/{sample}.coverage.txt")
+        cov = join(outdir, "temp/sparse_matrices/{sample}.coverage.txt"),
+        temp_bam0 = join(outdir, "temp/temp_bam/{sample}.temp0.bam") # Add temp_bam0 to output
     run:
         sample = wildcards.sample
         barcodes_file = join(outdir, f"temp/barcode_files/{sample}.txt")
@@ -94,18 +96,28 @@ rule process_one_slice:
         output_bam = join(outdir, f"temp/ready_bam/{sample}.qc.bam")
         rmlog = output_bam.replace(".qc.bam", ".rmdups.log").replace("/temp/ready_bam/", "/logs/rmdupslogs/")
         filtlog = output_bam.replace(".qc.bam", ".log").replace("/temp/ready_bam/", "/logs/filter/")
-        temp_bam0 = output_bam.replace(".qc.bam", ".temp0.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
         temp_bam1 = output_bam.replace(".qc.bam", ".temp1.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
         prefixSM = join(outdir, f"temp/sparse_matrices/{sample}")
         outputdepth = join(outdir, f"logs/depth/{sample}.txt")
 
-        def run_command(command):
-            logger.info(f"Running command: {command}") # Log the command
-            result = subprocess.run(command, shell=True, capture_output=True, text=True)
-            if result.returncode != 0:
-                logger.error(f"Command failed: {command}\n{result.stderr}") # Log the error
-                raise Exception(f"Command failed: {command}\n{result.stderr}")
-            logger.info(f"Command completed successfully.")
+        def run_command(command, log_file=None):
+            logger.info(f"Running command: {command}")
+            try:
+                if log_file:
+                    with open(log_file, "w") as f:
+                        result = subprocess.run(command, shell=True, check=True, stdout=f, stderr=subprocess.PIPE, text=True)
+                        logger.info(f"Command completed successfully. Log file: {log_file}")
+                else:
+                    result = subprocess.run(command, shell=True, check=True, capture_output=True, text=True)
+                    logger.info(f"Command completed successfully.")
+                if result.stderr:
+                    logger.warning(f"Command had stderr output:\n{result.stderr}")
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Command failed with return code {e.returncode}: {command}\nStdout: {e.stdout}\nStderr: {e.stderr}")
+                raise
+            except Exception as e:
+                logger.error(f"An unexpected error occurred while running the command: {command}\n{e}")
+                raise
 
         # 0) Check input files exist
         check_file_exists(input_bam)
@@ -114,12 +126,12 @@ rule process_one_slice:
 
         # 1) Filter bam files
         logger.info(f"Filtering bam files for sample {sample}")
-        pycall = f"{python} {filtclip_py} {input_bam} {filtlog} {mito_genome} {proper_paired} {NHmax} {NMmax} > {temp_bam0}"
+        pycall = f"{python} {filtclip_py} {input_bam} {filtlog} {mito_genome} {proper_paired} {NHmax} {NMmax} > {output.temp_bam0}" # Redirect output to temp_bam0
         run_command(pycall)
 
         # 2) Sort the filtered bam file
         logger.info(f"Sorting filtered bam file for sample {sample}")
-        pysam.sort("-o", temp_bam1, temp_bam0)
+        pysam.sort("-o", temp_bam1, output.temp_bam0)
         pysam.index(temp_bam1)
 
         # 3) (Optional) Remove duplicates
