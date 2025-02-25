@@ -15,32 +15,6 @@ from typing import List, Tuple, Dict
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def check_file_exists(file_path: str, error_message: str) -> None:
-    """
-    Checks if a file exists and exits if it doesn't.
-
-    Args:
-        file_path: Path to the file.
-        error_message: Error message to display if the file doesn't exist.
-    """
-    if not os.path.exists(file_path):
-        logger.error(error_message)
-        sys.exit(1)
-
-def create_output_directories(output_dir: str) -> None:
-    """
-    Creates the necessary output directories.
-
-    Args:
-        output_dir: The main output directory.
-    """
-    tf = os.path.join(output_dir, "temp")
-    bcbd = os.path.join(tf, "barcoded_bams")  # bcdb = barcoded bam directory
-    folders = [output_dir, tf, bcbd, os.path.join(output_dir, "final")]
-    logger.info("Creating output directories...")
-    for folder in folders:
-        make_folder(folder)
-
 def string_hamming_distance(str1: str, str2: str) -> int:
     """
     Calculates the Hamming distance between two strings of equal length.

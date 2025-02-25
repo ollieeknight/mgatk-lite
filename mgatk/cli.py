@@ -24,22 +24,22 @@ logger = logging.getLogger(__name__)
 @click.option('--output', '-o', default="mgatk", help='Output directory for analysis. Default = mgatk')
 @click.option('--name', '-n', default="mgatk", help='Prefix for project name. Default = mgatk')
 @click.option('--mito-genome', '-g', default="rCRS", required=True, help='Mitochondrial genome configuration. Default = rCRS.')
-@click.option('--ncores', '-c', default=1, help='Number of cores to run the main job in parallel.')
+@click.option('--ncores', '-c', default=1, type=int, help='Number of cores to run the main job in parallel.')
 @click.option('--barcode-tag', '-bt', default="X", help='Read tag (generally two letters) to separate single cells')
 @click.option('--barcodes', '-b', default="", help='Path to a file containing known barcodes, must be .tsv, so gunzip if from a paired DOGMA-seq mapping')
-@click.option('--min-barcode-reads', '-mb', default=1000, help='Minimum number of mitochondrial reads for a barcode to be genotyped. Default = 1000.')
-@click.option('--NHmax', default=1, help='Maximum number of read alignments allowed as governed by the NH flag. Default = 1.')
-@click.option('--NMmax', default=4, help='Maximum number of paired mismatches allowed represented by the NM/nM tags. Default = 4.')
+@click.option('--min-barcode-reads', '-mb', default=1000, type=int, help='Minimum number of mitochondrial reads for a barcode to be genotyped. Default = 1000.')
+@click.option('--NHmax', default=1, type=int, help='Maximum number of read alignments allowed as governed by the NH flag. Default = 1.')
+@click.option('--NMmax', default=4, type=int, help='Maximum number of paired mismatches allowed represented by the NM/nM tags. Default = 4.')
 @click.option('--remove-duplicates', '-rd', is_flag=True, help='Remove duplicate (presumably PCR) reads')
-@click.option('--umi-barcode', '-ub', default="XX", help='Read tag (generally two letters) to specify the UMI tag when removing duplicates for genotyping.')
+@click.option('--umi-barcode', '-ub', default="", help='Read tag (generally two letters) to specify the UMI tag when removing duplicates for genotyping.')
 @click.option('--handle-overlap', '-ho', is_flag=True, help='Only count each base in the overlap region between a pair of reads once')
-@click.option('--low-coverage-threshold', '-lc', default=10, help='Variant count for each cell will be ignored below this when calculating VMR')
+@click.option('--low-coverage-threshold', '-lc', default=10, type=int, help='Variant count for each cell will be ignored below this when calculating VMR')
 @click.option('--max-javamem', '-jm', default="8000m", help='Maximum memory for java for running duplicate removal per core. Default = 8000m.')
 @click.option('--proper-pairs', '-pp', is_flag=True, help='Require reads to be properly paired.')
-@click.option('--base-qual', '-q', default=0, help='Minimum base quality for inclusion in the genotype count. Default = 0.')
-@click.option('--alignment-quality', '-aq', default=0, help='Minimum alignment quality to include read in genotype. Default = 0.')
+@click.option('--base-qual', '-q', default=0, type=int, help='Minimum base quality for inclusion in the genotype count. Default = 0.')
+@click.option('--alignment-quality', '-aq', default=0, type=int, help='Minimum alignment quality to include read in genotype. Default = 0.')
 @click.option('--emit-base-qualities', '-eb', is_flag=True, help='Output mean base quality per alt allele as part of the final output.')
-@click.option('--nsamples', '-ns', default=0, help='The number of samples / cells to be processed per iteration; Default = 0, all. Supply an integer')
+@click.option('--nsamples', '-ns', default=0, type=int, help='The number of samples / cells to be processed per iteration; Default = 0, all. Supply an integer')
 @click.option('--keep-samples', '-k', default="ALL", help='Comma separated list of sample names to keep; ALL (special string) by default. Sample refers to basename of .bam file')
 @click.option('--ignore-samples', '-x', default="NONE", help='Comma separated list of sample names to ignore; NONE (special string) by default. Sample refers to basename of .bam file')
 @click.option('--keep-temp-files', '-z', is_flag=True, help='Add this flag to keep all intermediate files.')
@@ -57,6 +57,11 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     __version__ = get_distribution('mgatk').version
     logger.info(f"mgatk version {__version__}")
 
+    # Input Validation
+    if ncores <= 0:
+        logger.error(f"Invalid number of cores: {ncores}.  Must be a positive integer.")
+        sys.exit(1)
+
     # Verify dependencies
     logger.info("Verifying software dependencies...")
     check_software_dependencies(['R', 'java'])
@@ -65,7 +70,6 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     logger.info("Verifying pip dependencies...")
     check_pip_dependencies(['matplotlib', 'pulp'])
 
-    ncores = int(ncores)
     logger.info(f"Using {ncores} cores for parallel processing.")
 
     # Determine which genomes are available
@@ -131,13 +135,30 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     for key, value in config_details:
         logger.info(f"{key:26}: {value}")
 
-    # Make temporary directory of inputs
+    # Create output directories
     of = output
     tf = os.path.join(of, "temp")
-    bcbd = os.path.join(tf, "barcoded_bams")  # bcdb = barcoded bam directory
-    folders = [of, tf, bcbd, os.path.join(of, "final")]
+    bcbd = os.path.join(tf, "barcoded_bams")
+    logs = os.path.join(of, "logs")
+    internal = os.path.join(of, ".internal")
+    parseltongue = os.path.join(internal, "parseltongue")
+    samples_dir = os.path.join(internal, "samples")
+    final = os.path.join(of, "final")
+    ready_bam = os.path.join(tf, "ready_bam")
+    temp_bam = os.path.join(tf, "temp_bam")
+    sparse_matrices = os.path.join(tf, "sparse_matrices")
+    filter_logs = os.path.join(logs, "filter")
+    depth_logs = os.path.join(logs, "depth")
+    fasta_dir = os.path.join(of, "fasta")
+
+    folders = [of, tf, bcbd, logs, internal, parseltongue, samples_dir, final, ready_bam, temp_bam, sparse_matrices, filter_logs, depth_logs, fasta_dir]
+
+    if remove_duplicates:
+        folders.append(os.path.join(logs, "rmdupslogs"))
+
     logger.info("Creating output directories...")
-    mkfolderout = [make_folder(x) for x in folders]
+    for folder in folders:
+        make_folder(folder)
 
     # Handle fasta requirements
     logger.info("Handling fasta requirements...")
@@ -163,7 +184,7 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     logger.info("Splitting barcode file for parallel processing...")
     barcode_files = split_barcodes_file(barcodes, math.ceil(file_len(barcodes) / ncores), output)
     samples = [os.path.basename(os.path.splitext(sample)[0]) for sample in barcode_files]
-    samplebams = [os.path.join(of, "temp", "barcoded_bams", f"{sample}.bam") for sample in samples]
+    samplebams = [os.path.join(bcbd, f"{sample}.bam") for sample in samples]
 
     # Parallel processing of barcode files
     logger.info("Starting parallel processing of barcode files...")
@@ -173,26 +194,12 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     pool.join()
     logger.info("Finished parallel processing of barcode files.")
 
-    # Create necessary directories for output and logs
-    of = output
-    tf = os.path.join(of, "temp")
-    logs = os.path.join(of, "logs")
-    folders = [
-        logs, os.path.join(of, "logs", "filter"), os.path.join(of, "logs", "depth"), os.path.join(of, "fasta"), os.path.join(of, ".internal"),
-        os.path.join(of, ".internal", "parseltongue"), os.path.join(of, ".internal", "samples"), os.path.join(of, "final"),
-        tf, os.path.join(tf, "ready_bam"), os.path.join(tf, "temp_bam"), os.path.join(tf, "sparse_matrices")]
-    logger.info("Creating additional output directories...")
-    mkfolderout = [make_folder(x) for x in folders]
-
-    if remove_duplicates:
-        make_folder(os.path.join(of, "logs", "rmdupslogs"))
-
     # Create README files for internal directories
     readme_content = "This folder creates important (small) intermediate; don't modify it.\n\n"
     readme_files = [
-        (os.path.join(of, ".internal", "README"), readme_content),
-        (os.path.join(of, ".internal", "parseltongue", "README"), readme_content),
-        (os.path.join(of, ".internal", "samples", "README"), readme_content)
+        (os.path.join(internal, "README"), readme_content),
+        (os.path.join(parseltongue, "README"), readme_content),
+        (os.path.join(samples_dir, "README"), readme_content)
     ]
     for readme_file, content in readme_files:
         if not os.path.exists(readme_file):
@@ -202,7 +209,7 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     # Write sample bam file paths to internal directory
     for i in range(len(samples)):
         sample_bam_path = samplebams[i]
-        with open(os.path.join(of, ".internal", "samples", f"{samples[i]}.bam.txt"), 'w') as outfile:
+        with open(os.path.join(samples_dir, f"{samples[i]}.bam.txt"), 'w') as outfile:
             outfile.write(sample_bam_path)
 
     # Create YAML configuration file for Snakemake
@@ -216,7 +223,7 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         'proper_paired': sqs(proper_pairs), 'NHmax': sqs(nhmax), 'NMmax': sqs(nmmax), 'max_javamem': sqs(max_javamem)
     }
 
-    y_s = os.path.join(of, ".internal", "parseltongue", "snake.scatter.yaml")
+    y_s = os.path.join(parseltongue, "snake.scatter.yaml")
     with open(y_s, 'w') as yaml_file:
         yaml = YAML()
         yaml.default_flow_style = False
@@ -240,15 +247,22 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
 
     try:
         result = subprocess.run(snakecmd_tenx, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result.check_returncode()  # Raise an exception for non-zero return codes
+        logger.info(f"Snakemake completed successfully.  See {snake_log} for details.")
     except subprocess.CalledProcessError as e:
-        logger.error(f"Snakemake failed, see {snake_log} for details.")
+        logger.error(f"Snakemake failed, see {snake_log} for details.  Error: {e}")
         sys.exit(1)
 
     if not skip_r:
         logger.info("Running R script to generate .rds object...")
-        Rcall = f"Rscript {os.path.join(script_dir, 'bin', 'R', 'toRDS.R')} {os.path.join(output, 'final')} {name}"
-        os.system(Rcall)
-        logger.info("R script completed.")
+        rcall_cmd = f"Rscript {os.path.join(script_dir, 'bin', 'R', 'toRDS.R')} {final} {name}"
+        try:
+            result = subprocess.run(rcall_cmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            result.check_returncode()
+            logger.info("R script completed successfully.")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"R script failed. Error: {e.stderr.decode()}")
+            sys.exit(1)
 
     if remove_snakemake:
         logger.info("Removing .snakemake directory as --remove-snakemake was specified.")
@@ -256,11 +270,11 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
 
     if keep_qc_bams:
         logger.info("Final bams retained since --keep-qc-bams was specified.")
-        shutil.move(os.path.join(of, "temp", "ready_bam"), os.path.join(of, "qc_bam"))
+        shutil.move(os.path.join(ready_bam, "ready_bam"), os.path.join(of, "qc_bam"))
 
     if not keep_temp_files:
         logger.info("Removing temporary files...")
-        folders_to_remove = [os.path.join(of, "fasta"), os.path.join(of, ".internal"), os.path.join(of, "temp")]
+        folders_to_remove = [fasta_dir, internal, tf]
         for folder in folders_to_remove:
             shutil.rmtree(folder)
         logger.info("Temporary files removed.")
