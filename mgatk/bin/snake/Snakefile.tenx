@@ -45,7 +45,7 @@ bamtxtin = ''
 
 def run_command(command):
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
-    if result.returncode != 0:
+    if result.returncode != 0 and result.returncode != 100:
         print(f"Command failed: {command}")
         print(f"Stdout: {result.stdout}")
         print(f"Stderr: {result.stderr}")
