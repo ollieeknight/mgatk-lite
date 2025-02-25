@@ -172,6 +172,7 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     pool = Pool(processes=ncores)
     pool.starmap(split_chunk_file, zip(barcode_files, repeat(script_dir), repeat(input), repeat(bcbd), repeat(barcode_tag), repeat(mito_chr), repeat(umi_barcode)))
     pool.close()
+    pool.join()
     logger.info("Finished parallel processing of barcode files.")
 
     # Create necessary directories for output and logs
