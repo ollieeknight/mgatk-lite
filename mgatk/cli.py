@@ -70,20 +70,24 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
 
     # Determine which genomes are available
     logger.info("Determining available mitochondrial genomes...")
-    rawsg = glob.glob(os.path.join(script_dir, "bin", "anno", "fasta", "*.fasta"))
-    supported_genomes = [x.replace(os.path.join(script_dir, "bin", "anno", "fasta"), "").replace(".fasta", "") for x in rawsg]
+    rawsg = glob.glob(script_dir + "/bin/anno/fasta/*.fasta")
+    supported_genomes = [x.replace(script_dir + "/bin/anno/fasta/", "").replace(".fasta", "") for x in rawsg]
     logger.info(f"Supported genomes: {supported_genomes}")
 
     # Input argument is assumed to be a .bam file
     filename, file_extension = os.path.splitext(input)
     if file_extension != ".bam":
-        logger.error(f"The input should be an individual .bam file, but got {file_extension}.")
+        logger.error(f'The input should be an individual .bam file.')
         sys.exit(1)
-
-    index_file = input + ".bai"
-    if not os.path.exists(index_file):
+    if not os.path.exists(input):
+        logger.error(f'No file found called "{input}"; please specify a valid .bam file.')
+        sys.exit(1)
+    if not os.path.exists(input + ".bai"):
         logger.info(f"Attempting to index: {input}")
         pysam.index(input)
+        if not os.path.exists(input + ".bai"):
+            logger.error('Cannot find index file for input .bam file; please ensure that the .bam file is indexed.')
+            sys.exit(1)
 
     # Determine whether or not we have been supplied barcodes
     if os.path.exists(barcodes) and barcodes != "":
@@ -153,7 +157,7 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     elif bam_length == 16569:
         fastaf, mito_chr, mito_length = handle_fasta_inference("rCRS", supported_genomes, script_dir, of)
     else:
-        logger.info("User specified mitochondrial genome does NOT match .bam file; available references are GRCh37, GRCh38, NC_012920, rCRS, GRCm38")
+        logger.info(f"User specified mitochondrial genome does NOT match .bam file; available references are GRCh37, GRCh38, NC_012920, rCRS, GRCm38")
         sys.exit(1)
 
     # Split barcodes file for parallel processing
