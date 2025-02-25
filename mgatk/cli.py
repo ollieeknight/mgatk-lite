@@ -7,7 +7,7 @@ import logging
 import math
 import pysam
 from pkg_resources import get_distribution
-from subprocess import call, check_call, CalledProcessError, run
+from subprocess import call, check_call
 from .mgatkHelp import *
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import SingleQuotedScalarString as sqs
@@ -162,29 +162,18 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         sys.exit(1)
 
     # Split barcodes file for parallel processing
-    logger.info("Checking if barcode files and BAM files already exist...")
+    logger.info("Splitting barcode file for parallel processing...")
     barcode_files = split_barcodes_file(barcodes, math.ceil(file_len(barcodes) / ncores), output)
     samples = [os.path.basename(os.path.splitext(sample)[0]) for sample in barcode_files]
     samplebams = [of + "/temp/barcoded_bams/" + sample + ".bam" for sample in samples]
 
-    # Check if all barcode files and BAM files already exist
-    all_files_exist = all(os.path.exists(bf) for bf in barcode_files) and all(os.path.exists(sb) for sb in samplebams)
-
-    if all_files_exist:
-        logger.info("All barcode files and BAM files already exist. Skipping splitting and parallel processing.")
-    else:
-        logger.info("Splitting barcode file for parallel processing...")
-        barcode_files = split_barcodes_file(barcodes, math.ceil(file_len(barcodes) / ncores), output)
-        samples = [os.path.basename(os.path.splitext(sample)[0]) for sample in barcode_files]
-        samplebams = [of + "/temp/barcoded_bams/" + sample + ".bam" for sample in samples]
-
-        # Parallel processing of barcode files
-        logger.info("Starting parallel processing of barcode files...")
-        pool = Pool(processes=ncores)
-        pool.starmap(split_chunk_file, zip(barcode_files, repeat(script_dir), repeat(input), repeat(bcbd), repeat(barcode_tag), repeat(mito_chr), repeat(umi_barcode)))
-        pool.close()
-        pool.join()
-        logger.info("Finished parallel processing of barcode files.")
+    # Parallel processing of barcode files
+    logger.info("Starting parallel processing of barcode files...")
+    pool = Pool(processes=ncores)
+    pool.starmap(split_chunk_file, zip(barcode_files, repeat(script_dir), repeat(input), repeat(bcbd), repeat(barcode_tag), repeat(mito_chr), repeat(umi_barcode)))
+    pool.close()
+    pool.join()
+    logger.info("Finished parallel processing of barcode files.")
 
     # Create necessary directories for output and logs
     of = output
@@ -262,18 +251,17 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     else:
         logger.info("No lock file found. Proceeding without unlocking.")
 
-    snakefile = f"{script_dir}/bin/snake/Snakefile.tenx"
-    snake_log = logs + f"/{os.path.basename(snakefile)}.log"
+    # Execute Snakemake command
+    snake_log = logs + "/snakemake.log"
     snake_log_out = "" if snake_stdout else f'> {snake_log} 2>&1'
-    snakecmd = f'snakemake --snakefile {snakefile} --cores {ncores} --config cfp="{y_s}" {snake_log_out}'
+    snakecmd_tenx = f'snakemake --snakefile {script_dir}/bin/snake/Snakefile.tenx --cores {ncores} --config cfp="{y_s}" {snake_log_out}'
 
-    logger.info(f"Executing Snakemake command: {snakecmd}")
+    logger.info(f"Executing Snakemake command: {snakecmd_tenx}")
 
     try:
-        result = subprocess.run(snakecmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        logger.info(f"Successfully executed {snakefile}.")
-    except CalledProcessError as e:
-        logger.error(f"Snakemake failed for {snakefile}, see {snake_log} for details.")
+        result = subprocess.run(snakecmd_tenx, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        logger.info(f"Snakemake failed, see {snake_log} for details.")
         sys.exit(1)
 
     if not skip_r:

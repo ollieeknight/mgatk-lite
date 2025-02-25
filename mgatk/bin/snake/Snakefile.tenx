@@ -3,6 +3,11 @@ import subprocess
 import shutil
 import pysam
 from os.path import join
+import logging
+
+# Setup logger
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Parse the configuration variables
 configfile: config["cfp"]
@@ -43,6 +48,19 @@ picardCall = f"{java} -Xmx{max_javamem} -jar {join(script_dir, 'bin/picard.jar')
 SAMPLES, = glob_wildcards(join(outdir, ".internal/samples/{sample}.bam.txt"))
 bamtxtin = ''
 
+def check_file_exists(filepath):
+    """
+    Checks if a file exists and is readable.  Logs an error and raises an exception if not.
+    """
+    if not os.path.exists(filepath):
+        logger.error(f"File not found: {filepath}")
+        raise FileNotFoundError(f"Required file does not exist: {filepath}")
+    if not os.access(filepath, os.R_OK):
+        logger.error(f"File not readable: {filepath}")
+        raise PermissionError(f"File is not readable: {filepath}")
+    logger.info(f"File found and readable: {filepath}")
+
+
 rule all:
     input:
         f"{mgatk_directory}/final/{name}.depthTable.txt",
@@ -55,46 +73,9 @@ rule all:
         f"{mgatk_directory}/final/{name}.cell_heteroplasmic_df.tsv.gz",
         f"{mgatk_directory}/final/{name}.vmr_strand_plot.png"
 
-rule filter_bam:
+rule process_one_slice:
     input:
         txtin = join(outdir, ".internal/samples/{sample}.bam.txt")
-    output:
-        temp_bam0 = join(outdir, "temp/temp_bam/{sample}.temp0.bam"),
-        filtlog = join(outdir, "logs/filter/{sample}.log")
-    run:
-        sample = wildcards.sample
-        with open(input.txtin) as f:
-            input_bam = f.read().strip()
-        pycall = f"{python} {filtclip_py} {input_bam} {output.filtlog} {mito_genome} {proper_paired} {NHmax} {NMmax} > {output.temp_bam0}"
-        run_command(pycall)
-
-rule sort_bam:
-    input:
-        temp_bam0 = join(outdir, "temp/temp_bam/{sample}.temp0.bam")
-    output:
-        temp_bam1 = join(outdir, "temp/temp_bam/{sample}.temp1.bam")
-    run:
-        pysam.sort("-o", output.temp_bam1, input.temp_bam0)
-        pysam.index(output.temp_bam1)
-
-rule remove_duplicates:
-    input:
-        temp_bam1 = join(outdir, "temp/temp_bam/{sample}.temp1.bam")
-    output:
-        output_bam = join(outdir, "temp/ready_bam/{sample}.qc.bam"),
-        rmlog = join(outdir, "logs/rmdupslogs/{sample}.rmdups.log")
-    run:
-        if remove_duplicates == "True":
-            mdc_long = f"{picardCall} I={input.temp_bam1} O={output.output_bam} M={output.rmlog} REMOVE_DUPLICATES=true ASSUME_SORTED=true VALIDATION_STRINGENCY=SILENT QUIET=true VERBOSITY=ERROR USE_JDK_DEFLATER=true USE_JDK_INFLATER=true BARCODE_TAG={umi_barcode}"
-            run_command(mdc_long)
-        else:
-            shutil.move(input.temp_bam1, output.output_bam)
-            os.remove(f"{input.temp_bam1}.bai")
-        pysam.index(output.output_bam)
-
-rule collect_genotype_counts:
-    input:
-        output_bam = join(outdir, "temp/ready_bam/{sample}.qc.bam")
     output:
         depth = join(outdir, "logs/depth/{sample}_depth.txt"),
         A = join(outdir, "temp/sparse_matrices/{sample}.A.txt"),
@@ -106,8 +87,56 @@ rule collect_genotype_counts:
         sample = wildcards.sample
         barcodes_file = join(outdir, f"temp/barcode_files/{sample}.txt")
         out_pre = join(outdir, f"temp/sparse_matrices/{sample}")
+
+        with open(input.txtin) as f:
+            input_bam = f.read().strip()
+
+        output_bam = join(outdir, f"temp/ready_bam/{sample}.qc.bam")
+        rmlog = output_bam.replace(".qc.bam", ".rmdups.log").replace("/temp/ready_bam/", "/logs/rmdupslogs/")
+        filtlog = output_bam.replace(".qc.bam", ".log").replace("/temp/ready_bam/", "/logs/filter/")
+        temp_bam0 = output_bam.replace(".qc.bam", ".temp0.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
+        temp_bam1 = output_bam.replace(".qc.bam", ".temp1.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
+        prefixSM = join(outdir, f"temp/sparse_matrices/{sample}")
+        outputdepth = join(outdir, f"logs/depth/{sample}.txt")
+
+        def run_command(command):
+            logger.info(f"Running command: {command}") # Log the command
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.error(f"Command failed: {command}\n{result.stderr}") # Log the error
+                raise Exception(f"Command failed: {command}\n{result.stderr}")
+            logger.info(f"Command completed successfully.")
+
+        # 0) Check input files exist
+        check_file_exists(input_bam)
+        check_file_exists(fasta_file)
+        check_file_exists(barcodes_file)
+
+        # 1) Filter bam files
+        logger.info(f"Filtering bam files for sample {sample}")
+        pycall = f"{python} {filtclip_py} {input_bam} {filtlog} {mito_genome} {proper_paired} {NHmax} {NMmax} > {temp_bam0}"
+        run_command(pycall)
+
+        # 2) Sort the filtered bam file
+        logger.info(f"Sorting filtered bam file for sample {sample}")
+        pysam.sort("-o", temp_bam1, temp_bam0)
+        pysam.index(temp_bam1)
+
+        # 3) (Optional) Remove duplicates
+        if remove_duplicates == "True":
+            logger.info(f"Removing duplicates for sample {sample}")
+            mdc_long = f"{picardCall} I={temp_bam1} O={output_bam} M={rmlog} REMOVE_DUPLICATES=true ASSUME_SORTED=true VALIDATION_STRINGENCY=SILENT QUIET=true VERBOSITY=ERROR USE_JDK_DEFLATER=true USE_JDK_INFLATER=true BARCODE_TAG={umi_barcode}"
+            run_command(mdc_long)
+        else:
+            logger.info(f"Skipping duplicate removal for sample {sample}")
+            shutil.move(temp_bam1, output_bam)
+            os.remove(f"{temp_bam1}.bai")
+        pysam.index(output_bam)
+
+        # Now collect the genotype counts
+        logger.info(f"Collecting genotype counts for sample {sample}")
         sumstats_tenx_py = join(script_dir, "bin/python/sumstatsBPtenx_overlap.py" if handle_overlap == "True" else "bin/python/sumstatsBPtenx.py")
-        pycall = f"{python} {sumstats_tenx_py} {input.output_bam} {barcodes_file} {out_pre} {mito_length} {base_qual} {fasta_file} {alignment_quality} {barcode_tag}"
+        pycall = f"{python} {sumstats_tenx_py} {output_bam} {barcodes_file} {out_pre} {mito_length} {base_qual} {fasta_file} {alignment_quality} {barcode_tag}"
         run_command(pycall)
 
 rule make_depth_table:
@@ -116,10 +145,13 @@ rule make_depth_table:
     output:
         depthtable = join(mgatk_directory, f"final/{name}.depthTable.txt")
     run:
+        logger.info(f"Creating depth table from {input.depths}")
         with open(output.depthtable, 'w') as f:
             for file in input.depths:
+                check_file_exists(file) # Check depth file exists
                 with open(file) as infile:
                     f.write(infile.read())
+        logger.info(f"Depth table created at {output.depthtable}")
 
 rule make_final_sparse_matrices:
     input:
@@ -135,9 +167,11 @@ rule make_final_sparse_matrices:
         T = join(mgatk_directory, f"final/{name}.T.txt.gz"),
         Cov = join(mgatk_directory, f"final/{name}.coverage.txt.gz")
     run:
+        logger.info(f"Making final sparse matrices")
         def makeSM(iterableThing, l):
             with open(join(mgatk_directory, f"final/{name}.{l}.txt"), 'w') as outfile:
                 for i in iterableThing:
+                    check_file_exists(i) # Check sparse matrix file exists
                     with open(i) as infile:
                         outfile.write(infile.read())
             subprocess.run(f"gzip {join(mgatk_directory, f'final/{name}.{l}.txt')}", shell=True)
@@ -147,6 +181,7 @@ rule make_final_sparse_matrices:
         makeSM(input.Gs, "G")
         makeSM(input.Ts, "T")
         makeSM(input.Covs, "coverage")
+        logger.info(f"Final sparse matrices created")
 
 rule call_variants:
     input:
@@ -160,6 +195,16 @@ rule call_variants:
         heteroplasmy_df = join(mgatk_directory, f"final/{name}.cell_heteroplasmic_df.tsv.gz"),
         vmr_strand_plot = join(mgatk_directory, f"final/{name}.vmr_strand_plot.png")
     run:
+        logger.info(f"Calling variants")
         call_variant_py = join(script_dir, "bin/python/variant_calling.py")
+
+        # Check all input files exist
+        check_file_exists(input.A)
+        check_file_exists(input.C)
+        check_file_exists(input.G)
+        check_file_exists(input.T)
+        check_file_exists(input.chrM_ref)
+
         pycall = f"{python} {call_variant_py} {join(mgatk_directory, 'final/')} {name} {mito_length} {low_coverage_threshold} {mito_genome}"
         subprocess.run(pycall, shell=True)
+        logger.info(f"Variants called and output files created")
