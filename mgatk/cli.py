@@ -162,18 +162,29 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         sys.exit(1)
 
     # Split barcodes file for parallel processing
-    logger.info("Splitting barcode file for parallel processing...")
+    logger.info("Checking if barcode files and BAM files already exist...")
     barcode_files = split_barcodes_file(barcodes, math.ceil(file_len(barcodes) / ncores), output)
     samples = [os.path.basename(os.path.splitext(sample)[0]) for sample in barcode_files]
     samplebams = [of + "/temp/barcoded_bams/" + sample + ".bam" for sample in samples]
 
-    # Parallel processing of barcode files
-    logger.info("Starting parallel processing of barcode files...")
-    pool = Pool(processes=ncores)
-    pool.starmap(split_chunk_file, zip(barcode_files, repeat(script_dir), repeat(input), repeat(bcbd), repeat(barcode_tag), repeat(mito_chr), repeat(umi_barcode)))
-    pool.close()
-    pool.join()
-    logger.info("Finished parallel processing of barcode files.")
+    # Check if all barcode files and BAM files already exist
+    all_files_exist = all(os.path.exists(bf) for bf in barcode_files) and all(os.path.exists(sb) for sb in samplebams)
+
+    if all_files_exist:
+        logger.info("All barcode files and BAM files already exist. Skipping splitting and parallel processing.")
+    else:
+        logger.info("Splitting barcode file for parallel processing...")
+        barcode_files = split_barcodes_file(barcodes, math.ceil(file_len(barcodes) / ncores), output)
+        samples = [os.path.basename(os.path.splitext(sample)[0]) for sample in barcode_files]
+        samplebams = [of + "/temp/barcoded_bams/" + sample + ".bam" for sample in samples]
+
+        # Parallel processing of barcode files
+        logger.info("Starting parallel processing of barcode files...")
+        pool = Pool(processes=ncores)
+        pool.starmap(split_chunk_file, zip(barcode_files, repeat(script_dir), repeat(input), repeat(bcbd), repeat(barcode_tag), repeat(mito_chr), repeat(umi_barcode)))
+        pool.close()
+        pool.join()
+        logger.info("Finished parallel processing of barcode files.")
 
     # Create necessary directories for output and logs
     of = output
