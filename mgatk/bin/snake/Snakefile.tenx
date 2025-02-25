@@ -108,6 +108,18 @@ rule process_one_slice:
 
         # Now collect the genotype counts
         sumstats_tenx_py = join(script_dir, "bin/python/sumstatsBPtenx_overlap.py" if handle_overlap == "True" else "bin/python/sumstatsBPtenx.py")
+
+        # Add debugging prints
+        print(f"Input BAM: {input_bam}")
+        print(f"Barcodes file: {barcodes_file}")
+        print(f"Output prefix: {out_pre}")
+        print(f"Mito length: {mito_length}")
+        print(f"Base quality: {base_qual}")
+        print(f"Fasta file: {fasta_file}")
+        print(f"Alignment quality: {alignment_quality}")
+        print(f"Barcode tag: {barcode_tag}")
+        print(f"sumstats_tenx_py: {sumstats_tenx_py}")
+
         pycall = f"{python} {sumstats_tenx_py} {output_bam} {barcodes_file} {out_pre} {mito_length} {base_qual} {fasta_file} {alignment_quality} {barcode_tag}"
         run_command(pycall)
 
