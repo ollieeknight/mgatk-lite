@@ -6,8 +6,8 @@ import glob
 import logging
 import math
 import pysam
+import subprocess
 from pkg_resources import get_distribution
-from subprocess import call, check_call
 from .mgatkHelp import *
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import SingleQuotedScalarString as sqs
@@ -47,7 +47,6 @@ logger = logging.getLogger(__name__)
 @click.option('--skip-R', '-sr', is_flag=True, help='Generate plain-text only output. Otherwise, this generates a .rds object that can be immediately read into R for downstream analysis.')
 @click.option('--snake-stdout', '-so', is_flag=True, help='Write snakemake log to stdout rather than a file. May be necessary for certain HPC environments.')
 @click.option('--remove-snakemake', '-rs', is_flag=True, help='Delete the .snakemake directory once successfully run.')
-
 def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_barcode_reads, nhmax, nmmax, remove_duplicates, umi_barcode, handle_overlap, low_coverage_threshold, max_javamem, proper_pairs, base_qual, alignment_quality, emit_base_qualities, nsamples, keep_samples, ignore_samples, keep_temp_files, keep_qc_bams, skip_r, snake_stdout, remove_snakemake):
     """
     mgatk: a mitochondrial genome analysis toolkit.
@@ -56,7 +55,7 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     script_dir = os.path.dirname(os.path.realpath(__file__))
     cwd = os.getcwd()
     __version__ = get_distribution('mgatk').version
-    logger.info("mgatk version %s" % __version__)
+    logger.info(f"mgatk version {__version__}")
 
     # Verify dependencies
     logger.info("Verifying software dependencies...")
@@ -71,24 +70,23 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
 
     # Determine which genomes are available
     logger.info("Determining available mitochondrial genomes...")
-    rawsg = glob.glob(script_dir + "/bin/anno/fasta/*.fasta")
-    supported_genomes = [x.replace(script_dir + "/bin/anno/fasta/", "").replace(".fasta", "") for x in rawsg]
+    rawsg = glob.glob(os.path.join(script_dir, "bin", "anno", "fasta", "*.fasta"))
+    supported_genomes = [x.replace(os.path.join(script_dir, "bin", "anno", "fasta"), "").replace(".fasta", "") for x in rawsg]
     logger.info(f"Supported genomes: {supported_genomes}")
 
     # Input argument is assumed to be a .bam file
     filename, file_extension = os.path.splitext(input)
     if file_extension != ".bam":
-        logger.error(f'The input should be an individual .bam file.')
+        logger.error(f"The input should be an individual .bam file, but got {file_extension}.")
         sys.exit(1)
-    if not os.path.exists(input):
-        logger.error(f'No file found called "{input}"; please specify a valid .bam file.')
-        sys.exit(1)
-    if not os.path.exists(input + ".bai"):
+
+    check_file_exists(input, f"No file found called '{input}'; please specify a valid .bam file.")
+
+    index_file = input + ".bai"
+    if not os.path.exists(index_file):
         logger.info(f"Attempting to index: {input}")
         pysam.index(input)
-        if not os.path.exists(input + ".bai"):
-            logger.error('Cannot find index file for input .bam file; please ensure that the .bam file is indexed.')
-            sys.exit(1)
+        check_file_exists(index_file, "Cannot find index file for input .bam file; please ensure that the .bam file is indexed.")
 
     # Determine whether or not we have been supplied barcodes
     if os.path.exists(barcodes) and barcodes != "":
@@ -158,14 +156,14 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     elif bam_length == 16569:
         fastaf, mito_chr, mito_length = handle_fasta_inference("rCRS", supported_genomes, script_dir, of)
     else:
-        logger.info(f"User specified mitochondrial genome does NOT match .bam file; available references are GRCh37, GRCh38, NC_012920, rCRS, GRCm38")
+        logger.info("User specified mitochondrial genome does NOT match .bam file; available references are GRCh37, GRCh38, NC_012920, rCRS, GRCm38")
         sys.exit(1)
 
     # Split barcodes file for parallel processing
     logger.info("Splitting barcode file for parallel processing...")
     barcode_files = split_barcodes_file(barcodes, math.ceil(file_len(barcodes) / ncores), output)
     samples = [os.path.basename(os.path.splitext(sample)[0]) for sample in barcode_files]
-    samplebams = [of + "/temp/barcoded_bams/" + sample + ".bam" for sample in samples]
+    samplebams = [os.path.join(of, "temp", "barcoded_bams", f"{sample}.bam") for sample in samples]
 
     # Parallel processing of barcode files
     logger.info("Starting parallel processing of barcode files...")
@@ -177,33 +175,35 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
 
     # Create necessary directories for output and logs
     of = output
-    tf = of + "/temp"
-    logs = of + "/logs"
+    tf = os.path.join(of, "temp")
+    logs = os.path.join(of, "logs")
     folders = [
-        logs, of + "/logs/filter", of + "/logs/depth", of + "/fasta", of + "/.internal",
-        of + "/.internal/parseltongue", of + "/.internal/samples", of + "/final",
-        tf, tf + "/ready_bam", tf + "/temp_bam", tf + "/sparse_matrices"]
+        logs, os.path.join(of, "logs", "filter"), os.path.join(of, "logs", "depth"), os.path.join(of, "fasta"), os.path.join(of, ".internal"),
+        os.path.join(of, ".internal", "parseltongue"), os.path.join(of, ".internal", "samples"), os.path.join(of, "final"),
+        tf, os.path.join(tf, "ready_bam"), os.path.join(tf, "temp_bam"), os.path.join(tf, "sparse_matrices")]
     logger.info("Creating additional output directories...")
     mkfolderout = [make_folder(x) for x in folders]
 
     if remove_duplicates:
-        make_folder(of + "/logs/rmdupslogs")
+        make_folder(os.path.join(of, "logs", "rmdupslogs"))
 
     # Create README files for internal directories
-    if not os.path.exists(of + "/.internal/README"):
-        with open(of + "/.internal/README", 'w') as outfile:
-            outfile.write("This folder creates important (small) intermediate; don't modify it.\n\n")
-    if not os.path.exists(of + "/.internal/parseltongue/README"):
-        with open(of + "/.internal/parseltongue/README", 'w') as outfile:
-            outfile.write("This folder creates intermediate output to be interpreted by Snakemake; don't modify it.\n\n")
-    if not os.path.exists(of + "/.internal/samples/README"):
-        with open(of + "/.internal/samples/README", 'w') as outfile:
-            outfile.write("This folder creates samples to be interpreted by Snakemake; don't modify it.\n\n")
+    readme_content = "This folder creates important (small) intermediate; don't modify it.\n\n"
+    readme_files = [
+        (os.path.join(of, ".internal", "README"), readme_content),
+        (os.path.join(of, ".internal", "parseltongue", "README"), readme_content),
+        (os.path.join(of, ".internal", "samples", "README"), readme_content)
+    ]
+    for readme_file, content in readme_files:
+        if not os.path.exists(readme_file):
+            with open(readme_file, 'w') as outfile:
+                outfile.write(content)
 
     # Write sample bam file paths to internal directory
     for i in range(len(samples)):
-        with open(of + "/.internal/samples/" + samples[i] + ".bam.txt", 'w') as outfile:
-            outfile.write(samplebams[i])
+        sample_bam_path = samplebams[i]
+        with open(os.path.join(of, ".internal", "samples", f"{samples[i]}.bam.txt"), 'w') as outfile:
+            outfile.write(sample_bam_path)
 
     # Create YAML configuration file for Snakemake
     logger.info("Creating Snakemake configuration file...")
@@ -216,7 +216,7 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         'proper_paired': sqs(proper_pairs), 'NHmax': sqs(nhmax), 'NMmax': sqs(nmmax), 'max_javamem': sqs(max_javamem)
     }
 
-    y_s = of + "/.internal/parseltongue/snake.scatter.yaml"
+    y_s = os.path.join(of, ".internal", "parseltongue", "snake.scatter.yaml")
     with open(y_s, 'w') as yaml_file:
         yaml = YAML()
         yaml.default_flow_style = False
@@ -225,48 +225,28 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
 
     # Write configuration details to configuration.txt
     logger.info("Writing configuration details to file...")
-    with open(f"{logs}/configuration.txt", 'a') as param_file:
+    with open(os.path.join(logs, "configuration.txt"), 'a') as param_file:
         param_file.write("Configuration details:\n")
         for key, value in config_details:
             param_file.write(f"{key:25}: {value}\n")
     logger.info("Configuration details written to file.")
 
-    import subprocess
-
-    # Path to the lock file
-    lock_file = os.path.join(script_dir, ".snakemake", "lock")
-
-    # Check if the lock file exists
-    if os.path.exists(lock_file):
-        # Unlock the working directory
-        snakecmd_unlock = f'snakemake --unlock --snakefile {script_dir}/bin/snake/Snakefile.tenx'
-        logger.info(f"Unlocking Snakemake working directory: {snakecmd_unlock}")
-
-        try:
-            result = subprocess.run(snakecmd_unlock, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            logger.info("Successfully unlocked Snakemake working directory.")
-        except subprocess.CalledProcessError as e:
-            logger.error("Failed to unlock Snakemake working directory.")
-            sys.exit(1)
-    else:
-        logger.info("No lock file found. Proceeding without unlocking.")
-
     # Execute Snakemake command
-    snake_log = logs + "/snakemake.log"
+    snake_log = os.path.join(logs, "snakemake.log")
     snake_log_out = "" if snake_stdout else f'> {snake_log} 2>&1'
-    snakecmd_tenx = f'snakemake --snakefile {script_dir}/bin/snake/Snakefile.tenx --cores {ncores} --config cfp="{y_s}" {snake_log_out}'
+    snakecmd_tenx = f'snakemake --snakefile {os.path.join(script_dir, "bin", "snake", "Snakefile.tenx")} --cores {ncores} --config cfp="{y_s}" {snake_log_out}'
 
     logger.info(f"Executing Snakemake command: {snakecmd_tenx}")
 
     try:
         result = subprocess.run(snakecmd_tenx, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
-        logger.info(f"Snakemake failed, see {snake_log} for details.")
+        logger.error(f"Snakemake failed, see {snake_log} for details.")
         sys.exit(1)
 
     if not skip_r:
         logger.info("Running R script to generate .rds object...")
-        Rcall = f"Rscript {script_dir}/bin/R/toRDS.R {output}/final {name}"
+        Rcall = f"Rscript {os.path.join(script_dir, 'bin', 'R', 'toRDS.R')} {os.path.join(output, 'final')} {name}"
         os.system(Rcall)
         logger.info("R script completed.")
 
@@ -276,11 +256,12 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
 
     if keep_qc_bams:
         logger.info("Final bams retained since --keep-qc-bams was specified.")
-        shutil.move(of + "/temp/ready_bam", of + "/qc_bam")
+        shutil.move(os.path.join(of, "temp", "ready_bam"), os.path.join(of, "qc_bam"))
 
     if not keep_temp_files:
         logger.info("Removing temporary files...")
-        for folder in [of + "/fasta", of + "/.internal", of + "/temp"]:
+        folders_to_remove = [os.path.join(of, "fasta"), os.path.join(of, ".internal"), os.path.join(of, "temp")]
+        for folder in folders_to_remove:
             shutil.rmtree(folder)
         logger.info("Temporary files removed.")
     else:

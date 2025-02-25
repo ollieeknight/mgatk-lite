@@ -74,30 +74,42 @@ rule process_one_slice:
             input_bam = f.read().strip()
 
         output_bam = join(outdir, f"temp/ready_bam/{sample}.qc.bam")
-        rmlog = output_bam.replace(".qc.bam", ".rmdups.log").replace("/temp/ready_bam/", "/logs/rmdupslogs/")
-        filtlog = output_bam.replace(".qc.bam", ".log").replace("/temp/ready_bam/", "/logs/filter/")
-        temp_bam0 = output_bam.replace(".qc.bam", ".temp0.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
-        temp_bam1 = output_bam.replace(".qc.bam", ".temp1.bam").replace("/temp/ready_bam/", "/temp/temp_bam/")
+        rmlog = join(outdir, "logs/rmdupslogs", f"{sample}.rmdups.log")
+        filtlog = join(outdir, "logs/filter", f"{sample}.log")
+        temp_bam0 = join(outdir, "temp/temp_bam", f"{sample}.temp0.bam")
+        temp_bam1 = join(outdir, "temp/temp_bam", f"{sample}.temp1.bam")
         prefixSM = join(outdir, f"temp/sparse_matrices/{sample}")
         outputdepth = join(outdir, f"logs/depth/{sample}.txt")
 
         def run_command(command):
             result = subprocess.run(command, shell=True, capture_output=True, text=True)
             if result.returncode != 0:
-                raise Exception(f"Command failed: {command}\n{result.stderr}")
+                raise Exception(f"Command failed: {command}\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}")
 
         # 1) Filter bam files
         pycall = f"{python} {filtclip_py} {input_bam} {filtlog} {mito_genome} {proper_paired} {NHmax} {NMmax} > {temp_bam0}"
-        run_command(pycall)
+        try:
+            run_command(pycall)
+        except Exception as e:
+            logger.error(f"Filtering failed for sample {sample}: {e}")
+            raise
 
         # 2) Sort the filtered bam file
-        pysam.sort("-o", temp_bam1, temp_bam0)
-        pysam.index(temp_bam1)
+        try:
+            pysam.sort("-o", temp_bam1, temp_bam0)
+            pysam.index(temp_bam1)
+        except Exception as e:
+            logger.error(f"Sorting/indexing failed for sample {sample}: {e}")
+            raise
 
         # 3) (Optional) Remove duplicates
         if remove_duplicates == "True":
             mdc_long = f"{picardCall} I={temp_bam1} O={output_bam} M={rmlog} REMOVE_DUPLICATES=true ASSUME_SORTED=true VALIDATION_STRINGENCY=SILENT QUIET=true VERBOSITY=ERROR USE_JDK_DEFLATER=true USE_JDK_INFLATER=true BARCODE_TAG={umi_barcode}"
-            run_command(mdc_long)
+            try:
+                run_command(mdc_long)
+            except Exception as e:
+                logger.error(f"MarkDuplicates failed for sample {sample}: {e}")
+                raise
         else:
             shutil.move(temp_bam1, output_bam)
             os.remove(f"{temp_bam1}.bai")
@@ -106,7 +118,11 @@ rule process_one_slice:
         # Now collect the genotype counts
         sumstats_tenx_py = join(script_dir, "bin/python/sumstatsBPtenx_overlap.py" if handle_overlap == "True" else "bin/python/sumstatsBPtenx.py")
         pycall = f"{python} {sumstats_tenx_py} {output_bam} {barcodes_file} {out_pre} {mito_length} {base_qual} {fasta_file} {alignment_quality} {barcode_tag}"
-        run_command(pycall)
+        try:
+            run_command(pycall)
+        except Exception as e:
+            logger.error(f"sumstats failed for sample {sample}: {e}")
+            raise
 
 rule make_depth_table:
     input:
