@@ -133,9 +133,9 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
 
     # Make temporary directory of inputs
     of = output
-    tf = of + "/temp"
-    bcbd = tf + "/barcoded_bams"  # bcdb = barcoded bam directory
-    folders = [of, tf, bcbd, of + "/final"]
+    tf = os.path.join(of, "temp")
+    bcbd = os.path.join(tf, "barcoded_bams")  # bcdb = barcoded bam directory
+    folders = [of, tf, bcbd, os.path.join(of, "final")]
     logger.info("Creating output directories...")
     mkfolderout = [make_folder(x) for x in folders]
 
