@@ -110,27 +110,6 @@ rule collect_genotype_counts:
         pycall = f"{python} {sumstats_tenx_py} {input.output_bam} {barcodes_file} {out_pre} {mito_length} {base_qual} {fasta_file} {alignment_quality} {barcode_tag}"
         run_command(pycall)
 
-rule process_one_slice:
-    input:
-        txtin = join(outdir, ".internal/samples/{sample}.bam.txt")
-    output:
-        depth = join(outdir, "logs/depth/{sample}_depth.txt"),
-        A = join(outdir, "temp/sparse_matrices/{sample}.A.txt"),
-        C = join(outdir, "temp/sparse_matrices/{sample}.C.txt"),
-        G = join(outdir, "temp/sparse_matrices/{sample}.G.txt"),
-        T = join(outdir, "temp/sparse_matrices/{sample}.T.txt"),
-        cov = join(outdir, "temp/sparse_matrices/{sample}.coverage.txt")
-    run:
-        sample = wildcards.sample
-        barcodes_file = join(outdir, f"temp/barcode_files/{sample}.txt")
-        out_pre = join(outdir, f"temp/sparse_matrices/{sample}")
-
-        # Call the smaller rules in sequence
-        snakemake.shell(f"snakemake filter_bam --cores {ncores} --config sample={sample}")
-        snakemake.shell(f"snakemake sort_bam --cores {ncores} --config sample={sample}")
-        snakemake.shell(f"snakemake remove_duplicates --cores {ncores} --config sample={sample}")
-        snakemake.shell(f"snakemake collect_genotype_counts --cores {ncores} --config sample={sample}")
-
 rule make_depth_table:
     input:
         depths = expand(join(mgatk_directory, "logs/depth/{sample}_depth.txt"), sample=SAMPLES)

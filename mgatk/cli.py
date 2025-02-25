@@ -7,7 +7,7 @@ import logging
 import math
 import pysam
 from pkg_resources import get_distribution
-from subprocess import call, check_call
+from subprocess import call, check_call, CalledProcessError, run
 from .mgatkHelp import *
 from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import SingleQuotedScalarString as sqs
@@ -262,17 +262,18 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
     else:
         logger.info("No lock file found. Proceeding without unlocking.")
 
-    # Execute Snakemake command
-    snake_log = logs + "/snakemake.log"
+    snakefile = f"{script_dir}/bin/snake/Snakefile.tenx"
+    snake_log = logs + f"/{os.path.basename(snakefile)}.log"
     snake_log_out = "" if snake_stdout else f'> {snake_log} 2>&1'
-    snakecmd_tenx = f'snakemake --snakefile {script_dir}/bin/snake/Snakefile.tenx --cores {ncores} --config cfp="{y_s}" {snake_log_out}'
+    snakecmd = f'snakemake --snakefile {snakefile} --cores {ncores} --config cfp="{y_s}" {snake_log_out}'
 
-    logger.info(f"Executing Snakemake command: {snakecmd_tenx}")
+    logger.info(f"Executing Snakemake command: {snakecmd}")
 
     try:
-        result = subprocess.run(snakecmd_tenx, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except subprocess.CalledProcessError as e:
-        logger.info(f"Snakemake failed, see {snake_log} for details.")
+        result = subprocess.run(snakecmd, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        logger.info(f"Successfully executed {snakefile}.")
+    except CalledProcessError as e:
+        logger.error(f"Snakemake failed for {snakefile}, see {snake_log} for details.")
         sys.exit(1)
 
     if not skip_r:
