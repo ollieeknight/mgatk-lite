@@ -7,6 +7,7 @@
 
 import sys
 import pysam
+import re
 
 # Get command line arguments
 bamfile, logfile, mtchr, proper_pair, NHmax, NMmax = sys.argv[1:7]
@@ -16,8 +17,8 @@ bam = pysam.AlignmentFile(bamfile, "rb")
 
 # Modify the header to account for CRA v2 nonsense
 header_string = str(bam.header)
-if "@HD\tSO:coordinate" in header_string:
-    new_header = header_string.replace("@HD\tSO:coordinate", "@HD\tVN:1.5\tSO:coordinate")
+if re.search(r"^@HD\s+SO:coordinate", header_string, re.MULTILINE):
+    new_header = re.sub(r"^@HD\s+SO:coordinate", "@HD\tVN:1.5\tSO:coordinate", header_string, flags=re.MULTILINE)
 else:
     new_header = header_string
 out = pysam.AlignmentFile("-", "wb", text=new_header)
@@ -39,16 +40,7 @@ def filterReadTags(intags):
             nm = value
     return nh <= int(NHmax) and nm <= int(NMmax)
 
-def pairing(read):
-    '''
-    Check if reads are properly paired
-    '''
-    if proper_pair == "True":
-        return read.is_proper_pair
-    else:
-        return True
-
-def processRead(read):
+def pairing(read(read):
     '''
     Process each read in the BAM file
     '''
