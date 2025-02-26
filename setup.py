@@ -21,7 +21,7 @@ dependencies = [
 setup(
     name='mgatk-lite',
     version='1.0.0',
-    url='https://github.com/ollieeknight/mgatk',
+    url='https://github.com/ollieeknight/mgatk-lite',
     license='MIT',
     author='Oliver Knight',
     author_email='oliver.knight@charite.de',
