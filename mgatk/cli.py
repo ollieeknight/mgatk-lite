@@ -227,29 +227,25 @@ def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_ba
         result = subprocess.run(snakecmd_tenx, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as e:
         if e.returncode == 100:
-            logger.warning("No variants were called. The analysis will terminate gracefully.")
+            logger.warning("No variants were called in the final output; this might be due to low mitchondrial DNA coverage")
             sys.exit(0)  # Exit gracefully
         else:
             logger.error(f"Snakemake failed, see {snake_log} for details.")
             sys.exit(1)
 
     if not skip_r:
-        logger.info("Generating .rds objects...")
         Rcall = f"Rscript {os.path.join(script_dir, 'bin', 'R', 'toRDS.R')} {os.path.join(output, 'final')} {name}"
         os.system(Rcall)
-        logger.info("R script completed.")
 
     if remove_snakemake:
         shutil.rmtree(".snakemake")
 
     if keep_qc_bams:
-        logger.info("Final bams retained")
         shutil.move(os.path.join(of, "temp", "ready_bam"), os.path.join(of, "qc_bam"))
 
     if not keep_temp_files:
-        logger.info("Removing temporary files...")
         folders_to_remove = [os.path.join(of, "fasta"), os.path.join(of, ".internal"), os.path.join(of, "temp")]
         for folder in folders_to_remove:
             shutil.rmtree(folder)
 
-    logger.info("Successfully created final output files. Analysis complete.")
+    logger.info("Analysis complete")
