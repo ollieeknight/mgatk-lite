@@ -49,13 +49,13 @@ logger = logging.getLogger(__name__)
 @click.option('--remove-snakemake', '-rs', is_flag=True, help='Delete the .snakemake directory once successfully run.')
 def main(input, output, name, mito_genome, ncores, barcode_tag, barcodes, min_barcode_reads, nhmax, nmmax, remove_duplicates, umi_barcode, handle_overlap, low_coverage_threshold, max_javamem, proper_pairs, base_qual, alignment_quality, emit_base_qualities, nsamples, keep_samples, ignore_samples, keep_temp_files, keep_qc_bams, skip_r, snake_stdout, remove_snakemake):
     """
-    mgatk: a mitochondrial genome analysis toolkit.
+    mgatk-lite: a mitochondrial genome analysis toolkit.
     See https://github.com/ollieeknight/mgatk for more details.
     """
     script_dir = os.path.dirname(os.path.realpath(__file__))
     cwd = os.getcwd()
-    __version__ = get_distribution('mgatk').version
-    logger.info(f"mgatk version {__version__}")
+    __version__ = get_distribution('mgatk-lite').version
+    logger.info(f"mgatk-lite version {__version__}")
 
     # Verify dependencies
     logger.info("Verifying software dependencies...")
