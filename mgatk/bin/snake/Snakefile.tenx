@@ -46,9 +46,6 @@ bamtxtin = ''
 def run_command(command):
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     if result.returncode != 0 and result.returncode != 100:
-        print(f"Command failed: {command}")
-        print(f"Stdout: {result.stdout}")
-        print(f"Stderr: {result.stderr}")
         raise Exception(f"Command failed: {command}\n{result.stderr}")
 
 rule all:
@@ -59,9 +56,9 @@ rule all:
         f"{mgatk_directory}/final/{name}.G.txt.gz",
         f"{mgatk_directory}/final/{name}.T.txt.gz",
         f"{mgatk_directory}/final/{name}.coverage.txt.gz",
-        f"{mgatk_directory}/final/{name}.variant_stats.tsv.gz",
-        f"{mgatk_directory}/final/{name}.cell_heteroplasmic_df.tsv.gz",
-        f"{mgatk_directory}/final/{name}.vmr_strand_plot.png"
+        #f"{mgatk_directory}/final/{name}.variant_stats.tsv.gz",
+        #f"{mgatk_directory}/final/{name}.cell_heteroplasmic_df.tsv.gz",
+        #f"{mgatk_directory}/final/{name}.vmr_strand_plot.png"
 
 rule process_one_slice:
     input:
@@ -75,14 +72,11 @@ rule process_one_slice:
         cov = join(outdir, "temp/sparse_matrices/{sample}.coverage.txt")
     run:
         sample = wildcards.sample
-        print(f"Starting process_one_slice for sample: {sample}")
-
         barcodes_file = join(outdir, f"temp/barcode_files/{sample}.txt")
         out_pre = join(outdir, f"temp/sparse_matrices/{sample}")
 
         with open(input.txtin) as f:
             input_bam = f.read().strip()
-        print(f"Input BAM file: {input_bam}")
 
         output_bam = join(outdir, f"temp/ready_bam/{sample}.qc.bam")
         rmlog = output_bam.replace(".qc.bam", ".rmdups.log").replace("/temp/ready_bam/", "/logs/rmdupslogs/")
@@ -93,48 +87,27 @@ rule process_one_slice:
         outputdepth = join(outdir, f"logs/depth/{sample}.txt")
 
         # 1) Filter bam files
-        print(f"Filtering BAM file using: {filtclip_py}")
         pycall = f"{python} {filtclip_py} {input_bam} {filtlog} {mito_genome} {proper_paired} {NHmax} {NMmax} > {temp_bam0}"
         run_command(pycall)
-        print(f"Finished filtering BAM file")
 
         # 2) Sort the filtered bam file
-        print(f"Sorting BAM file: {temp_bam1}")
         pysam.sort("-o", temp_bam1, temp_bam0)
         pysam.index(temp_bam1)
-        print(f"Finished sorting BAM file")
 
         # 3) (Optional) Remove duplicates
         if remove_duplicates == "True":
-            print("Removing duplicates using Picard MarkDuplicates")
             mdc_long = f"{picardCall} I={temp_bam1} O={output_bam} M={rmlog} REMOVE_DUPLICATES=true ASSUME_SORTED=true VALIDATION_STRINGENCY=SILENT QUIET=true VERBOSITY=ERROR USE_JDK_DEFLATER=true USE_JDK_INFLATER=true BARCODE_TAG={umi_barcode}"
             run_command(mdc_long)
         else:
-            print("Skipping duplicate removal")
             shutil.move(temp_bam1, output_bam)
             os.remove(f"{temp_bam1}.bai")
         pysam.index(output_bam)
 
         # Now collect the genotype counts
         sumstats_tenx_py = join(script_dir, "bin/python/sumstatsBPtenx_overlap.py" if handle_overlap == "True" else "bin/python/sumstatsBPtenx.py")
-        print(f"Collecting genotype counts using: {sumstats_tenx_py}")
-
-        # Add debugging prints
-        print(f"Input BAM: {input_bam}")
-        print(f"Barcodes file: {barcodes_file}")
-        print(f"Output prefix: {out_pre}")
-        print(f"Mito length: {mito_length}")
-        print(f"Base quality: {base_qual}")
-        print(f"Fasta file: {fasta_file}")
-        print(f"Alignment quality: {alignment_quality}")
-        print(f"Barcode tag: {barcode_tag}")
-        print(f"sumstats_tenx_py: {sumstats_tenx_py}")
 
         pycall = f"{python} {sumstats_tenx_py} {output_bam} {barcodes_file} {out_pre} {mito_length} {base_qual} {fasta_file} {alignment_quality} {barcode_tag}"
         run_command(pycall)
-        print(f"Finished collecting genotype counts")
-
-        print(f"Finished process_one_slice for sample: {sample}")
 
 rule make_depth_table:
     input:
@@ -142,12 +115,10 @@ rule make_depth_table:
     output:
         depthtable = join(mgatk_directory, f"final/{name}.depthTable.txt")
     run:
-        print("Starting make_depth_table")
         with open(output.depthtable, 'w') as f:
             for file in input.depths:
                 with open(file) as infile:
                     f.write(infile.read())
-        print("Finished make_depth_table")
 
 rule make_final_sparse_matrices:
     input:
@@ -163,7 +134,6 @@ rule make_final_sparse_matrices:
         T = join(mgatk_directory, f"final/{name}.T.txt.gz"),
         Cov = join(mgatk_directory, f"final/{name}.coverage.txt.gz")
     run:
-        print("Starting make_final_sparse_matrices")
         def makeSM(iterableThing, l):
             with open(join(mgatk_directory, f"final/{name}.{l}.txt"), 'w') as outfile:
                 for i in iterableThing:
@@ -176,9 +146,8 @@ rule make_final_sparse_matrices:
         makeSM(input.Gs, "G")
         makeSM(input.Ts, "T")
         makeSM(input.Covs, "coverage")
-        print("Finished make_final_sparse_matrices")
 
-rule call_variants:
+checkpoint call_variants:
     input:
         A = join(mgatk_directory, f"final/{name}.A.txt.gz"),
         C = join(mgatk_directory, f"final/{name}.C.txt.gz"),
@@ -190,7 +159,6 @@ rule call_variants:
         heteroplasmy_df = join(mgatk_directory, f"final/{name}.cell_heteroplasmic_df.tsv.gz"),
         vmr_strand_plot = join(mgatk_directory, f"final/{name}.vmr_strand_plot.png")
     run:
-        print("Starting call_variants")
         call_variant_py = join(script_dir, "bin/python/variant_calling.py")
         pycall = f"{python} {call_variant_py} {join(mgatk_directory, 'final/')} {name} {mito_length} {low_coverage_threshold} {mito_genome}"
         try:
@@ -200,4 +168,13 @@ rule call_variants:
                 print("No variants called.")
             else:
                 raise e
-        print("Finished call_variants")
+
+def get_variant_input(wildcards):
+    checkpoint_output = checkpoints.call_variants.get(**wildcards).output
+    return checkpoint_output
+
+rule downstream_analysis:
+    input:
+        variant_stats = get_variant_input
+    run:
+        shell("echo 'Running downstream analysis with variant stats: {input.variant_stats}'")
