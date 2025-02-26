@@ -1,5 +1,5 @@
 # Prune tests, data, and other stuff
-prune mgatk.egg-info/
+prune mgatk_lite.egg-info/
 prune tests/
 prune *.DS_Store
 
