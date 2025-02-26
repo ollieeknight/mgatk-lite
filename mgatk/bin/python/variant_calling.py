@@ -134,12 +134,9 @@ for i, var in enumerate(variants):
     rev_cell_variant_df.append(base_coverage_dict[base][1][pos].values)
 
 # Convert to DataFrames
-if not variants or not cell_barcodes:
+if not variants or not cell_barcodes.empty:
     print("No variants or cell barcodes found. Creating empty output files.")
     # Create empty output files
-    open(MGATK_OUT_DIR + sample_prefix + '.variant_stats.tsv.gz', 'w').close()
-    open(MGATK_OUT_DIR + sample_prefix + '.cell_heteroplasmic_df.tsv.gz', 'w').close()
-    plt.figure().savefig(MGATK_OUT_DIR + sample_prefix + '.vmr_strand_plot.png')
     sys.exit(100)  # Return a specific exit code
 
 total_coverage_variant_df = pd.DataFrame(
