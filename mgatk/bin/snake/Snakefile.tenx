@@ -198,10 +198,6 @@ rule call_variants:
         except Exception as e:
             if isinstance(e, subprocess.CalledProcessError) and e.returncode == 100:
                 print("No variants called.")
-                # Create empty output files to satisfy Snakemake
-                open(output.variant_stats, 'w').close()
-                open(output.heteroplasmy_df, 'w').close()
-                open(output.vmr_strand_plot, 'w').close()
             else:
                 raise e
         print("Finished call_variants")

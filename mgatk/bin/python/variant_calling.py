@@ -135,8 +135,7 @@ for i, var in enumerate(variants):
 
 # Convert to DataFrames
 if not variants or not cell_barcodes.empty:
-    print("No variants or cell barcodes found. Creating empty output files.")
-    # Create empty output files
+    print("No variants or cell barcodes found.")
     sys.exit(100)  # Return a specific exit code
 
 total_coverage_variant_df = pd.DataFrame(
