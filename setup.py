@@ -34,7 +34,7 @@ setup(
     install_requires=dependencies,
     entry_points={
         'console_scripts': [
-            'mgatk-lite = mgatk-lite.cli:main'
+            'mgatk-lite = mgatk.cli:main'
         ],
     },
     classifiers=[
