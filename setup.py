@@ -1,5 +1,5 @@
 """
-mgatk: a mitochondrial genome analysis toolkit
+mgatk-lite: a mitochondrial genome analysis toolkit
 """
 from setuptools import find_packages, setup
 
@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 setup(
-    name='mgatk',
+    name='mgatk-lite',
     version='1.0.0',
     url='https://github.com/ollieeknight/mgatk',
     license='MIT',
@@ -34,7 +34,7 @@ setup(
     install_requires=dependencies,
     entry_points={
         'console_scripts': [
-            'mgatk = mgatk.cli:main'
+            'mgatk-lite = mgatk.cli:main'
         ],
     },
     classifiers=[

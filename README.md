@@ -1,17 +1,17 @@
 # mgatk lite: Mitochondrial Genome Analysis Toolkit
 
-**mgatk** is a comprehensive toolkit designed for the analysis of mitochondrial genomes, originally developed by [Caleb Lareau](https://github.com/caleblareau). The original provides a suite of tools to process and analyze mitochondrial DNA (mtDNA) from single-cell sequencing data, particularly from 10x Genomics platforms.  
+**mgatk-lite** is a comprehensive toolkit designed for the analysis of mitochondrial genomes, originally developed by [Caleb Lareau](https://github.com/caleblareau). The original provides a suite of tools to process and analyze mitochondrial DNA (mtDNA) from single-cell sequencing data, particularly from 10x Genomics platforms.  
 
 *This* version, however, has now removed most flexible functionality, with the purpose of optimizing and streamlining the `tenx` mode to work with 10x Genomics scATAC/ASAP-seq data.
 
 Some of the options may not work as in our lab we generally run the program as:
 
 ```sh
-mgatk tenx \
+mgatk-lite \
     -i ${project_outs}/${library}/outs/possorted_bam.bam \
     -n output \
     -o ${project_outs}/${library}/mgatk \
-    -c 1 \
+    -c $(nproc) \
     -bt CB \
     -b ${project_outs}/${library}/outs/filtered_peak_bc_matrix/barcodes.tsv \
     --skip-R \
@@ -26,23 +26,23 @@ mgatk tenx \
 
 ## Installation
 
-To install **mgatk**, use the following command:
+To install **mgatk-lite**, use the following command:
 
 ```sh
 conda create -y -n mgatk openjdk r-base r-data.table r-matrix bioconductor-genomicranges bioconductor-summarizedexperiment 
 pip install pulp==2.7.0 matplotlib
-git clone https://github.com/ollieeknight/mgatk
-cd mgatk
+git clone https://github.com/ollieeknight/mgatk-lite
+cd mgatk-lite
 pip install .
 ```
 
 ## Test usage
 
 ```sh
-git clone https://github.com/ollieeknight/mgatk
-cd mgatk/tests/
+git clone https://github.com/ollieeknight/mgatk-lite
+cd mgatk-lite/tests/
 
-mgatk tenx -i barcode/test_barcode.bam -n bc1 -o bc1dmem -bt CB -b barcode/test_barcodes.txt -c 2
+mgatk-lite -i barcode/test_barcode.bam -n bc1 -o bc1dmem -bt CB -b barcode/test_barcodes.txt -c 2
 
 2024-12-03 11:08:47,969 - INFO - mgatk version 1.0.0
 2024-12-03 11:08:48,307 - INFO - Configuration for analysis:
@@ -75,7 +75,7 @@ mgatk tenx -i barcode/test_barcode.bam -n bc1 -o bc1dmem -bt CB -b barcode/test_
 2024-12-03 11:08:48,308 - INFO - Snake stdout              : False
 2024-12-03 11:08:48,308 - INFO - Remove .snakemake         : False
 2024-12-03 11:08:48,330 - INFO - Using fasta file: bc1dmem/fasta/chrM.fasta
-2024-12-03 11:08:50,618 - INFO - Executing Snakemake command: snakemake --snakefile /home/olive/bin/mgatk/mgatk/bin/snake/Snakefile.tenx --cores 2 --config cfp="bc1dmem/.internal/parseltongue/snake.scatter.yaml" > bc1dmem/logs/snakemake.log 2>&1
+2024-12-03 11:08:50,618 - INFO - Executing Snakemake command: snakemake --snakefile /home/olive/bin/mgatk-lite/mgatk/bin/snake/Snakefile.tenx --cores 2 --config cfp="bc1dmem/.internal/parseltongue/snake.scatter.yaml" > bc1dmem/logs/snakemake.log 2>&1
 2024-12-03 11:09:22,163 - INFO - Successfully created final output files. Analysis complete.
 ```
 
@@ -113,4 +113,4 @@ For more details, visit the [mgatk GitHub repository](https://github.com/calebla
 
 ## Contact
 
-The [**mgatk**](https://github.com/caleblareau/mgatk) package was developed and is maintained by [Caleb Lareau](https://www.mskcc.org/research/ski/labs/caleb-lareau), but this repo is maintained by [Oliver Knight](https://immunologie.charite.de/metas/person/person/address_detail/oliver_knight/).
+The [**mgatk-lite**](https://github.com/caleblareau/mgatk) package was developed and is maintained by [Caleb Lareau](https://www.mskcc.org/research/ski/labs/caleb-lareau), but this repo is maintained by [Oliver Knight](https://immunologie.charite.de/metas/person/person/address_detail/oliver_knight/).
